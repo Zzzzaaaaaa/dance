@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版  v2</title>
+<title>走位分段练习 MP4版 v2.1</title>
 <style>
   body { font-family: sans-serif; margin: 0; padding: 12px; background: #16161f; color: #eee; }
   .tip { color: #888; font-size: 13px; }
@@ -26,12 +26,12 @@
   #danceVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
   #playOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none;
                  align-items: center; justify-content: center; background: rgba(0,0,0,.55);
-                 z-index: 10; cursor: pointer; }
+                 z-index: 10; cursor: pointer; flex-direction: column; gap: 10px; }
   #playOverlay .big { width: 84px; height: 84px; border-radius: 50%;
                       background: rgba(255,255,255,.92); color: #16161f; font-size: 34px;
                       display: flex; align-items: center; justify-content: center; }
-  #overlayMsg { position: absolute; bottom: 12px; left: 8px; right: 8px; text-align: center;
-                color: #ffe9a0; font-size: 13px; text-shadow: 0 1px 3px #000; }
+  #overlayMsg { color: #ffe9a0; font-size: 14px; text-shadow: 0 1px 3px #000;
+                text-align: center; padding: 0 12px; }
   .row { text-align: center; margin: 8px 0; }
   #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0; }
   #stageWrap { display: flex; justify-content: center; margin-top: 8px; }
@@ -81,7 +81,7 @@
     </div>
 
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      🔇 默认静音自动播放；想听声音点视频自带的音量键 ｜ MP4版 v2
+      🔇 默认静音自动播放；想听声音点视频自带音量键 ｜ MP4版 v2.1
     </div>
 
     <div class="row">
@@ -97,7 +97,6 @@
       </div>
       <div class="setRow">
         <button id="pickBtn" class="btn small">📂 选择手机/电脑里的MP4</button>
-        <div class="tip" style="margin-top:4px;">本地打开页面时用（刷新后需重选）</div>
       </div>
       <div class="setRow">
         <label>时间偏移（秒）：</label>
@@ -127,8 +126,6 @@
 const video = document.getElementById("danceVideo");
 const overlay = document.getElementById("playOverlay");
 const overlayMsg = document.getElementById("overlayMsg");
-const loopBtn = document.getElementById("loopBtn");
-const syncBtn = document.getElementById("syncBtn");
 const settingsPanel = document.getElementById("settingsPanel");
 const srcInput = document.getElementById("srcInput");
 const offsetInput = document.getElementById("offsetInput");
@@ -150,23 +147,47 @@ function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
   else pendingSeek = t;
 }
+
+/* ---- 播放核心（v2.1 修复 load/play 竞争） ---- */
 function tryPlay() {
   const p = video.play();
-  if (p && p.then) p.then(hideOverlay).catch(() => showOverlay(false));
+  if (p && p.then) {
+    p.then(hideOverlay).catch(err => {
+      if (err.name === "AbortError") {
+        // 视频还在加载，等能播了自动再试一次
+        video.addEventListener("canplay", () => {
+          video.play().then(hideOverlay).catch(() => showOverlay("▶ 点击开始播放"));
+        }, { once: true });
+      } else {
+        showOverlay("▶ 点击开始播放（浏览器拦截了自动播放，点一下就好）");
+      }
+    });
+  }
 }
-function showOverlay(isError) {
-  overlayMsg.textContent = isError
-    ? "⚠️ 视频加载失败：把 dance.mp4 放到本页面同一文件夹，或点「⚙️设置→选择本地MP4」"
-    : "▶ 点击开始播放（省电模式需手动点一下）";
+function showOverlay(msg) {
+  overlayMsg.textContent = msg;
   overlay.style.display = "flex";
 }
 function hideOverlay() { overlay.style.display = "none"; }
+
 overlay.addEventListener("click", (e) => { e.stopPropagation(); tryPlay(); });
+
+/* 覆盖层只在该消失时消失，播放中绝对不弹出来 */
+video.addEventListener("playing", hideOverlay);
+video.addEventListener("timeupdate", () => { if (!video.paused) hideOverlay(); });
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
-video.addEventListener("play", hideOverlay);
-video.addEventListener("error", () => { if (video.currentSrc) showOverlay(true); });
+video.addEventListener("error", () => {
+  const e = video.error;
+  let hint = "未知错误";
+  if (e) {
+    if (e.code === 2) hint = "下载中断/文件损坏";
+    else if (e.code === 3) hint = "解码失败：编码不是 H.264，需转码（ffmpeg -c:v libx264 -c:a aac）";
+    else if (e.code === 4) hint = "格式不支持：编码不是 H.264/AAC，需转码";
+  }
+  showOverlay("⚠️ " + hint + "（错误码 " + (e ? e.code : "?") + "）");
+});
 
 function applySrc() {
   video.src = blobSrc || settings.src;
@@ -342,7 +363,6 @@ document.getElementById("syncBtn").onclick = () => {
   tryPlay();
 };
 
-// 计时：直接读视频真实进度
 setInterval(() => {
   if (!curSeg || video.readyState < 1) return;
   const t = video.currentTime, off = settings.offset;
@@ -359,7 +379,6 @@ setInterval(() => {
   }
 }, 200);
 
-// 初始加载
 pendingSeek = Math.max(0, settings.offset);
 video.src = settings.src;
 video.load();
