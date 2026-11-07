@@ -3,25 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版 v2.9</title>
+<title>走位分段练习 v3.0 极简直连版</title>
 <!--
   ============ 改动记录 ============
-  v2.9
-    - 视频改走jsDelivr国内加速通道（大幅提升加载速度）；加速失效时自动回落本地文件，不会再404
-  v2.8
-    - 静音自动播放+「开声音」按钮（修复iOS非静音视频卡住的问题）
-  v2.7
-    - 走位图改百分比定位（修复手机端错位）；缓冲提示
-  v2.6
-    - 循环本段默认关闭；顶部加改动记录
-  v2.5
-    - 控制按钮移到视频上方
-  v2.4
-    - 偏移量按视频分别记忆；视频按钮改为dance3(默认)/dance
-  v2.3
-    - 时间轴前移2秒
-  v2.2
-    - 手机端段落条移到视频下方
+  v3.0（大简化）
+    - 移除加速通道，纯GitHub直连（回到能正常播放的老方式）
+    - 移除自动播放/开声音按钮（改为点击后才播放，人手点击时苹果允许有声播放）
+    - 视频列表：dance3.mp4(默认) / dance4.mp4(新) / dance.mp4
+    - 保留：35段走位图、循环本段、偏移微调、本地选文件、成员高亮
   =================================
 -->
 <style>
@@ -34,9 +23,6 @@
   .btn.active { background: #ff5c8a; }
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
-  #soundBtn { background: #b8860b; animation: pulse 1.2s infinite; }
-  #soundBtn.on { background: #2fae60; animation: none; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
   #layout { display: flex; gap: 14px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
   #main { flex: 1 1 auto; min-width: 0; width: 100%; }
   #side { flex: 0 0 190px; position: sticky; top: 12px; }
@@ -48,14 +34,6 @@
   #videoWrap { position: relative; width: 100%; aspect-ratio: 16/9;
                border-radius: 10px; overflow: hidden; background: #000; }
   #danceVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
-  #playOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: none;
-                 align-items: center; justify-content: center; background: rgba(0,0,0,.55);
-                 z-index: 10; cursor: pointer; flex-direction: column; gap: 10px; }
-  #playOverlay .big { width: 84px; height: 84px; border-radius: 50%;
-                      background: rgba(255,255,255,.92); color: #16161f; font-size: 34px;
-                      display: flex; align-items: center; justify-content: center; }
-  #overlayMsg { color: #ffe9a0; font-size: 14px; text-shadow: 0 1px 3px #000;
-                text-align: center; padding: 0 12px; }
   .row { display: flex; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
   #videoSel { display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
               margin: 6px 0; }
@@ -103,17 +81,17 @@
 <div id="layout">
   <div id="main">
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      ▶️ 自动播放（默认静音）；点黄色按钮开声音 ｜ MP4版 v2.9（加速版）
+      🎬 点段落按钮播放对应段（有声）｜视频下方进度条可自由拖动 ｜ v3.0 极简直连版
     </div>
 
     <div id="videoSel">
       <span class="tip">🎬 视频：</span>
       <button class="btn small vsrc" data-src="dance3.mp4">纯练习室版</button>
+      <button class="btn small vsrc" data-src="dance4.mp4">新版</button>
       <button class="btn small vsrc" data-src="dance.mp4">走位图版</button>
     </div>
 
     <div class="row">
-      <button id="soundBtn" class="btn small">🔊 开声音（点一下）</button>
       <button id="loopBtn" class="btn small">🔁 循环本段：关</button>
       <button id="syncBtn" class="btn small">⏪ 本段重播</button>
       <button id="setBtn" class="btn small">⚙️ 设置</button>
@@ -139,8 +117,7 @@
     <input type="file" id="fileInput" accept="video/*" style="display:none">
 
     <div id="videoWrap">
-      <video id="danceVideo" controls muted playsinline webkit-playsinline preload="auto"></video>
-      <div id="playOverlay"><div class="big">▶</div><div id="overlayMsg"></div></div>
+      <video id="danceVideo" controls playsinline webkit-playsinline preload="metadata"></video>
     </div>
 
     <div id="mobileSlot" style="display:none;"></div>
@@ -161,13 +138,7 @@
 </div>
 
 <script>
-/* ===== v2.9：jsDelivr加速（你的仓库：Zzzzaaaaaa/dance）=====
-   视频优先走加速通道；如果加速失败，自动改用直连，绝不会卡死 */
-const CDN = "https://cdn.jsdelivr.net/gh/Zzzzaaaaaa/dance@main/";
-
 const video = document.getElementById("danceVideo");
-const overlay = document.getElementById("playOverlay");
-const overlayMsg = document.getElementById("overlayMsg");
 const settingsPanel = document.getElementById("settingsPanel");
 const srcInput = document.getElementById("srcInput");
 const offsetInput = document.getElementById("offsetInput");
@@ -179,7 +150,6 @@ const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
 const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
-const soundBtn = document.getElementById("soundBtn");
 
 const mq = window.matchMedia("(max-width: 900px)");
 function layoutMode() {
@@ -195,88 +165,48 @@ function layoutMode() {
 }
 mq.addEventListener ? mq.addEventListener("change", layoutMode) : mq.addListener(layoutMode);
 
+/* ===== 设置（偏移量按视频分别记忆）===== */
 let settings = { src: "dance3.mp4", offsets: {} };
 try {
-  const s = JSON.parse(localStorage.getItem("danceSettings_v24"));
+  const s = JSON.parse(localStorage.getItem("danceSettings_v30"));
   if (s && typeof s.src === "string" && s.src && typeof s.offsets === "object") settings = s;
-  if (settings.src === "dance2.mp4") settings.src = "dance3.mp4";
 } catch(e) {}
-function saveSettings() { try { localStorage.setItem("danceSettings_v24", JSON.stringify(settings)); } catch(e) {} }
+function saveSettings() { try { localStorage.setItem("danceSettings_v30", JSON.stringify(settings)); } catch(e) {} }
 function curOff() { return settings.offsets[settings.src] || 0; }
 
 let blobSrc = null, pendingSeek = null;
 let loopOn = false, curSeg = null;
-let viaCDN = false; // 当前是否正在用加速通道
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
   else pendingSeek = t;
 }
+/* v3.0：只在用户点击时播放（苹果允许，且有声） */
 function tryPlay() {
   const p = video.play();
-  if (p && p.then) {
-    p.then(hideOverlay).catch(err => {
-      if (err.name === "AbortError") {
-        video.addEventListener("canplay", () => {
-          video.play().then(hideOverlay).catch(() => showOverlay("▶ 点击开始播放"));
-        }, { once: true });
-      } else {
-        showOverlay("▶ 点击开始播放");
-      }
-    });
-  }
+  if (p && p.catch) p.catch(() => {}); // 点了还不行就等用户手动按播放键
 }
-function showOverlay(msg) { overlayMsg.textContent = msg; overlay.style.display = "flex"; }
-function hideOverlay() { overlay.style.display = "none"; }
-overlay.addEventListener("click", (e) => { e.stopPropagation(); tryPlay(); });
 
-soundBtn.onclick = () => {
-  video.muted = false;
-  video.volume = 1;
-  soundBtn.textContent = "🔊 声音已开";
-  soundBtn.classList.add("on");
-};
-video.addEventListener("volumechange", () => {
-  if (!video.muted) { soundBtn.textContent = "🔊 声音已开"; soundBtn.classList.add("on"); }
-});
-
-video.addEventListener("playing", hideOverlay);
-video.addEventListener("waiting", () => {
-  if (!video.paused) showOverlay("⏳ 加载中…");
-});
-video.addEventListener("canplay", () => { if (!video.paused) hideOverlay(); });
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
-
-/* 加载失败：若正在走加速通道，自动回落到直连本地文件 */
 video.addEventListener("error", () => {
-  if (viaCDN && !blobSrc) {
-    viaCDN = false;
-    video.src = settings.src;
-    video.load();
-    tryPlay();
-    srcTip.textContent = "📎 加速通道不可用，已改用直连：" + settings.src;
-    return;
-  }
   const e = video.error;
-  showOverlay("⚠️ 视频加载失败（" + (e ? "错误码 " + e.code : "未知") + "），请刷新页面重试");
+  let hint = "未知错误";
+  if (e) {
+    if (e.code === 2) hint = "下载中断/文件损坏";
+    else if (e.code === 3) hint = "解码失败（视频编码不是H.264）";
+    else if (e.code === 4) hint = "文件不存在或格式不支持（检查文件名）";
+  }
+  srcTip.textContent = "⚠️ 视频加载失败：" + hint + "（错误码 " + (e ? e.code : "?") + "）";
 });
 
 function applySrc() {
+  /* 纯直连：文件名直接用（页面同目录），网址照用，本地文件用blob */
   video.src = blobSrc || settings.src;
-  viaCDN = false;
-  /* 普通文件名才走加速通道（用户手输的网址/本地文件不走） */
-  if (!blobSrc && !/^(https?:|blob:)/i.test(settings.src)) {
-    video.src = CDN + settings.src;
-    viaCDN = true;
-  }
-  video.muted = !soundBtn.classList.contains("on");
   pendingSeek = Math.max(0, (curSeg ? curSeg.sec : 0) + curOff());
   video.load();
-  tryPlay();
-  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地文件" : settings.src) +
-    (viaCDN ? "（加速中）" : "") + "（偏移 " + curOff() + "s）";
+  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地文件" : settings.src) + "（偏移 " + curOff() + "s）";
   document.querySelectorAll("#videoSel .vsrc").forEach(b =>
     b.classList.toggle("sel", !blobSrc && b.dataset.src === settings.src));
   offsetInput.value = curOff();
@@ -342,12 +272,9 @@ function fitStage() {
   const w = stage.clientWidth;
   if (w) stage.style.height = (w * ROWS / COLS) + "px";
 }
-function fitVideo() {
-  videoWrap.style.height = (videoWrap.clientWidth * 9 / 16) + "px";
-}
-window.addEventListener("resize", () => { fitStage(); fitVideo(); layoutMode(); });
-setTimeout(() => { fitStage(); fitVideo(); }, 0);
-setTimeout(() => { fitStage(); fitVideo(); }, 300);
+window.addEventListener("resize", () => { fitStage(); layoutMode(); });
+setTimeout(fitStage, 0);
+setTimeout(fitStage, 300);
 
 const dots = {};
 for (const id in colors) {
@@ -403,7 +330,7 @@ segments.forEach((seg) => {
     curSeg = seg;
     highlight(seg); formation(seg); updateInfo();
     seekTo(Math.max(0, seg.sec + curOff()));
-    tryPlay();
+    tryPlay(); // 用户点击 → 苹果允许有声播放
   };
   sideList.appendChild(btn);
 });
