@@ -3,15 +3,14 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段练习 v3.3</title>
+<title>我最可爱的地方 - 走位分段练习 v3.4</title>
 <!--
   ============ 改动记录 ============
+  v3.4
+    - 段落按钮显示「加了偏移后」的视频实际时间（0:00不变，18s→0:21…）
+    - 设置里改偏移量后按钮文字自动刷新
   v3.3
-    - 自动识别微信内置浏览器：改用兼容性最好的XHR下载（修复微信里假死）
-    - 微信内优先直连线路（jsDelivr在微信内常被路由到日本节点反而慢）
-    - 微信内顶部显示提示条：引导「在浏览器打开」速度更佳
-    - 下载完若微信禁止自动播放，显示「点击开始播放」
-    - 浏览器环境逻辑不变（fetch流式+百分比+加速优先）
+    - 识别微信：XHR下载防假死、直连优先、提示「在浏览器打开」
   v3.2
     - 完整下载后播放，百分比进度条，缓存后跳段零等待
   v3.1
@@ -101,7 +100,7 @@
   <div id="main">
     <h1>🎵 我最可爱的地方</h1>
     <div class="tip" style="text-align:center; color:#f06ea9; margin:2px 0 6px; font-size:12px;">
-      首次打开需完整加载视频（约16MB，有进度条），之后跳段零等待 ｜ v3.3
+      按钮时间为视频实际位置（已含偏移）｜首次打开需完整加载视频（约16MB）｜ v3.4
     </div>
 
     <div class="row">
@@ -215,7 +214,6 @@ function seekTo(t) {
 function tryPlay() {
   const p = video.play();
   if (p && p.catch) p.catch(() => {
-    /* 微信等环境禁止自动播：显示「点击开始」让用户点一下 */
     if (blobReady) {
       tapToPlay = true;
       loadOverlay.style.display = "flex";
@@ -295,7 +293,6 @@ async function trySource(url, label, useStream) {
 async function loadVideo() {
   if (blobReady) return;
   loadOverlay.style.display = "flex";
-  /* 线路顺序：普通浏览器=加速优先；微信=直连优先（jsDelivr在微信内常被甩到日本节点） */
   const useStream = !IS_WECHAT;
   const sources = IS_WECHAT
     ? [[DIRECT_URL, "微信内加载中…（建议点右上角···在浏览器打开，更快）"],
@@ -340,11 +337,19 @@ document.getElementById("setBtn").onclick = () => {
   offsetInput.value = offset;
   settingsPanel.style.display = settingsPanel.style.display === "none" ? "block" : "none";
 };
+function refreshBtnLabels() {
+  segments.forEach((s, i) => {
+    s.name = fmt(s.sec);
+    if (sideList.children[i]) sideList.children[i].textContent = s.name;
+  });
+  updateInfo();
+}
 document.getElementById("saveSet").onclick = () => {
   let off = parseFloat(offsetInput.value);
   if (isNaN(off)) off = DEFAULT_OFF;
   offset = Math.max(-10, Math.min(10, off));
   saveOffset();
+  refreshBtnLabels();
   seekTo(Math.max(0, curSeg.sec + offset));
   tryPlay();
   settingsPanel.style.display = "none";
@@ -353,6 +358,7 @@ document.getElementById("resetSet").onclick = () => {
   offset = DEFAULT_OFF;
   saveOffset();
   offsetInput.value = offset;
+  refreshBtnLabels();
   seekTo(Math.max(0, curSeg.sec + offset));
   tryPlay();
   settingsPanel.style.display = "none";
@@ -410,8 +416,14 @@ const segments = [
 ];
 segments.forEach((s, i) => {
   s.end = i < segments.length - 1 ? segments[i+1].sec : 254;
-  s.name = `${Math.floor(s.sec/60)}:${String(s.sec%60).padStart(2,"0")}`;
 });
+
+/* v3.4：按钮显示加偏移后的实际视频时间（0:00 保持不变） */
+function fmt(sec) {
+  const t = (sec === 0) ? 0 : sec + offset;
+  return `${Math.floor(t/60)}:${String(Math.round(t%60)).padStart(2,"0")}`;
+}
+segments.forEach((s) => { s.name = fmt(s.sec); });
 
 const colors = { 1:"#f06ea9", 2:"#6ee07a", 3:"#e05252", 4:"#f5923e",
                  5:"#e8e33a", 6:"#a06ee0", 7:"#5fb8f0" };
