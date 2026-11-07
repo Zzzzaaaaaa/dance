@@ -3,25 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版 v2.7</title>
+<title>走位分段练习 MP4版 v2.8</title>
 <!--
   ============ 改动记录 ============
+  v2.8
+    - 播放策略改回静音自动播放+「开声音」按钮（修复iOS上非静音视频卡在第一帧无法播放的问题，苹果系统限制）
   v2.7
     - 重写走位图定位：百分比布局替代JS缩放（根除手机端走位图错位/裁切）
-    - 视频缓冲时显示"加载中"提示（此前黑屏无反馈）
+    - 视频缓冲时显示"加载中"提示
   v2.6
-    - 循环本段：两个版本均默认关闭（撤销v2.5给纯练习室版默认开启的决定）
+    - 循环本段：两个版本均默认关闭
     - 代码顶部新增改动记录注释
   v2.5
-    - 默认有声播放（去掉muted）
-    - 视频切换按钮、循环/重播/设置按钮、提示文字全部移到视频上方
+    - 控制按钮和提示文字移到视频上方（本次撤销其去静音部分）
   v2.4
     - 时间偏移量按视频文件分别记忆
     - 视频按钮改为：纯练习室版(dance3.mp4,默认) / 走位图版(dance.mp4)，移除dance2
-    - 修复旧iOS视频容器高度塌陷导致的画面重叠；修复页面横向溢出
+    - 修复旧iOS视频容器高度塌陷；修复页面横向溢出
   v2.3
     - 段落时间轴整体前移2秒（写死），默认偏移归0
-    - 新增视频切换按钮；0:32段红色3号左移一格
   v2.2
     - 手机端段落胶囊条移至视频正下方
   =================================
@@ -36,6 +36,9 @@
   .btn.active { background: #ff5c8a; }
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
+  #soundBtn { background: #b8860b; animation: pulse 1.2s infinite; }
+  #soundBtn.on { background: #2fae60; animation: none; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.55} }
   #layout { display: flex; gap: 14px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
   #main { flex: 1 1 auto; min-width: 0; width: 100%; }
   #side { flex: 0 0 190px; position: sticky; top: 12px; }
@@ -61,7 +64,6 @@
   #videoSel .btn.sel { background: #2fae60; }
   #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0;
           word-break: break-all; }
-  /* 走位图：百分比定位，容器自适应宽度，无需JS缩放 */
   #stage { position: relative; width: 100%; max-width: 720px; margin: 8px auto 0;
            background-color: #20202c; border: 2px solid #444; border-radius: 4px;
            aspect-ratio: 12/7;
@@ -104,7 +106,7 @@
   <div id="main">
     <!-- ===== 控制区（视频上方） ===== -->
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      🔊 有声播放；浏览器拦截自动播放时点一下画面即可 ｜ MP4版 v2.7
+      ▶️ 自动播放（默认静音，苹果系统规定）；点下方黄按钮开声音 ｜ MP4版 v2.8
     </div>
 
     <div id="videoSel">
@@ -114,6 +116,7 @@
     </div>
 
     <div class="row">
+      <button id="soundBtn" class="btn small">🔊 开声音（点一下）</button>
       <button id="loopBtn" class="btn small">🔁 循环本段：关</button>
       <button id="syncBtn" class="btn small">⏪ 本段重播</button>
       <button id="setBtn" class="btn small">⚙️ 设置</button>
@@ -140,7 +143,7 @@
     <input type="file" id="fileInput" accept="video/*" style="display:none">
 
     <div id="videoWrap">
-      <video id="danceVideo" controls playsinline webkit-playsinline preload="auto"></video>
+      <video id="danceVideo" controls muted playsinline webkit-playsinline preload="auto"></video>
       <div id="playOverlay"><div class="big">▶</div><div id="overlayMsg"></div></div>
     </div>
     <!-- ===== 控制区结束，下方为走位图 ===== -->
@@ -177,6 +180,7 @@ const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
 const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
+const soundBtn = document.getElementById("soundBtn");
 
 /* ===== 手机/电脑布局切换 ===== */
 const mq = window.matchMedia("(max-width: 900px)");
@@ -210,6 +214,7 @@ function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
   else pendingSeek = t;
 }
+/* v2.8：默认静音播放，苹果系统对静音自动播放完全放行 */
 function tryPlay() {
   const p = video.play();
   if (p && p.then) {
@@ -219,7 +224,7 @@ function tryPlay() {
           video.play().then(hideOverlay).catch(() => showOverlay("▶ 点击开始播放"));
         }, { once: true });
       } else {
-        showOverlay("▶ 点击开始播放（浏览器拦截了有声自动播放，点一下就好）");
+        showOverlay("▶ 点击开始播放");
       }
     });
   }
@@ -228,10 +233,25 @@ function showOverlay(msg) { overlayMsg.textContent = msg; overlay.style.display 
 function hideOverlay() { overlay.style.display = "none"; }
 overlay.addEventListener("click", (e) => { e.stopPropagation(); tryPlay(); });
 
+/* ===== v2.8：一键开声音（用户的点击动作让系统放行） ===== */
+soundBtn.onclick = () => {
+  video.muted = false;
+  video.volume = 1;
+  soundBtn.textContent = "🔊 声音已开";
+  soundBtn.classList.add("on");
+};
+video.addEventListener("volumechange", () => {
+  if (!video.muted) {
+    soundBtn.textContent = "🔊 声音已开";
+    soundBtn.classList.add("on");
+  } else if (!soundBtn.classList.contains("on")) {
+    soundBtn.textContent = "🔊 开声音（点一下）";
+  }
+});
+
 video.addEventListener("playing", hideOverlay);
-video.addEventListener("timeupdate", () => { if (!video.paused) hideOverlay(); });
-video.addEventListener("waiting", () => {   // v2.7：缓冲提示
-  if (!video.paused) showOverlay("⏳ 加载中…（GitHub服务器在国内访问较慢，请稍等）");
+video.addEventListener("waiting", () => {
+  if (!video.paused) showOverlay("⏳ 加载中…（服务器在国外，请稍等）");
 });
 video.addEventListener("canplay", () => { if (!video.paused) hideOverlay(); });
 video.addEventListener("loadedmetadata", () => {
@@ -250,6 +270,7 @@ video.addEventListener("error", () => {
 
 function applySrc() {
   video.src = blobSrc || settings.src;
+  video.muted = !soundBtn.classList.contains("on"); // 换视频后保持用户的声音选择
   pendingSeek = Math.max(0, (curSeg ? curSeg.sec : 0) + curOff());
   video.load();
   tryPlay();
@@ -317,7 +338,6 @@ const colors = { 1:"#f06ea9", 2:"#6ee07a", 3:"#e05252", 4:"#f5923e",
                  5:"#e8e33a", 6:"#a06ee0", 7:"#5fb8f0" };
 const COLS = 12, ROWS = 7;
 
-/* 旧iOS不支持aspect-ratio时给走位图兜底高度 */
 function fitStage() {
   const w = stage.clientWidth;
   if (w) stage.style.height = (w * ROWS / COLS) + "px";
@@ -354,7 +374,6 @@ function applySolo() {
 }
 stage.addEventListener("click", () => { soloId = null; applySolo(); });
 
-/* v2.7：坐标直接换算为百分比，容器多宽图就多宽 */
 function formation(seg) {
   xMark.style.display = seg.x ? "block" : "none";
   Object.entries(seg).forEach(([k, v]) => {
