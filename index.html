@@ -3,17 +3,19 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段练习 v3.2</title>
+<title>我最可爱的地方 - 走位分段练习 v3.3</title>
 <!--
   ============ 改动记录 ============
+  v3.3
+    - 自动识别微信内置浏览器：改用兼容性最好的XHR下载（修复微信里假死）
+    - 微信内优先直连线路（jsDelivr在微信内常被路由到日本节点反而慢）
+    - 微信内顶部显示提示条：引导「在浏览器打开」速度更佳
+    - 下载完若微信禁止自动播放，显示「点击开始播放」
+    - 浏览器环境逻辑不变（fetch流式+百分比+加速优先）
   v3.2
-    - 视频改为「完整下载后才播放」，顶部显示加载百分比进度条
-    - 下载完成后缓存，反复跳段零等待
-    - 重新启用jsDelivr加速（视频已降到16MB，低于20MB上限），失败自动回落直连
+    - 完整下载后播放，百分比进度条，缓存后跳段零等待
   v3.1
     - 标题改歌名；走位图放大圆点缩小；只留dance4；偏移内置3s
-  v3.0
-    - 纯直连、点击播放
   =================================
 -->
 <style>
@@ -27,6 +29,9 @@
   .btn.active { background: #ff5c8a; }
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
+  #wxBar { display: none; background: #4a3a10; color: #ffd77a; border: 1px solid #a08030;
+           border-radius: 8px; padding: 9px 12px; margin: 0 auto 8px; max-width: 900px;
+           font-size: 13px; text-align: center; line-height: 1.6; }
   #layout { display: flex; gap: 14px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
   #main { flex: 1 1 auto; min-width: 0; width: 100%; }
   #side { flex: 0 0 190px; position: sticky; top: 12px; }
@@ -40,9 +45,9 @@
   #danceVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
   #loadOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10;
                  display: flex; flex-direction: column; align-items: center; justify-content: center;
-                 background: rgba(0,0,0,.72); gap: 12px; }
+                 background: rgba(0,0,0,.72); gap: 12px; cursor: pointer; }
   #loadPct { font-size: 22px; color: #7cf; font-weight: bold; }
-  #loadMsg { font-size: 13px; color: #bbb; }
+  #loadMsg { font-size: 13px; color: #bbb; text-align: center; padding: 0 14px; line-height: 1.6; }
   #loadBarBg { width: 60%; max-width: 320px; height: 10px; background: #333; border-radius: 5px;
                overflow: hidden; }
   #loadBar { width: 0%; height: 100%; background: linear-gradient(90deg,#4a6cf7,#2fae60);
@@ -87,11 +92,16 @@
 </head>
 <body>
 
+<div id="wxBar">
+  🐾 检测到你在微信里打开<br>
+  微信内置浏览器加载较慢，建议点右上角「···」→ <b>在浏览器打开</b>，速度和体验都会好很多
+</div>
+
 <div id="layout">
   <div id="main">
     <h1>🎵 我最可爱的地方</h1>
     <div class="tip" style="text-align:center; color:#f06ea9; margin:2px 0 6px; font-size:12px;">
-      首次打开需完整加载视频（约16MB，有进度条），之后跳段零等待 ｜ v3.2
+      首次打开需完整加载视频（约16MB，有进度条），之后跳段零等待 ｜ v3.3
     </div>
 
     <div class="row">
@@ -120,7 +130,7 @@
       <div id="loadOverlay">
         <div id="loadPct">0%</div>
         <div id="loadBarBg"><div id="loadBar"></div></div>
-        <div id="loadMsg">正在通过加速通道下载视频…</div>
+        <div id="loadMsg">正在加载视频…</div>
       </div>
     </div>
 
@@ -142,9 +152,13 @@
 </div>
 
 <script>
-/* ===== 视频来源：先加速，失败自动回落直连 ===== */
+/* ===== 环境识别 ===== */
+const IS_WECHAT = /MicroMessenger/i.test(navigator.userAgent);
+
 const CDN_URL    = "https://cdn.jsdelivr.net/gh/Zzzzaaaaaa/dance@main/dance4.mp4";
 const DIRECT_URL = "https://zzzzaaaaaa.github.io/dance/dance4.mp4";
+
+if (IS_WECHAT) document.getElementById("wxBar").style.display = "block";
 
 const video = document.getElementById("danceVideo");
 const loadOverlay = document.getElementById("loadOverlay");
@@ -176,7 +190,7 @@ function layoutMode() {
 }
 mq.addEventListener ? mq.addEventListener("change", layoutMode) : mq.addListener(layoutMode);
 
-/* ===== 设置：默认视频 dance4，偏移内置 3 秒 ===== */
+/* ===== 设置 ===== */
 const DEFAULT_OFF = 3;
 let offset = DEFAULT_OFF;
 try {
@@ -191,9 +205,8 @@ function saveOffset() {
 
 let loopOn = false, curSeg = null, soloId = null;
 let pendingSeek = null;
-let cachedBlob = null;       // 下载完成的视频blob（内存缓存）
-let loadingController = null;
-let blobReady = false;
+let cachedBlob = null, blobReady = false;
+let tapToPlay = false;
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -201,25 +214,59 @@ function seekTo(t) {
 }
 function tryPlay() {
   const p = video.play();
-  if (p && p.catch) p.catch(() => {});
+  if (p && p.catch) p.catch(() => {
+    /* 微信等环境禁止自动播：显示「点击开始」让用户点一下 */
+    if (blobReady) {
+      tapToPlay = true;
+      loadOverlay.style.display = "flex";
+      loadPct.textContent = "▶";
+      loadBar.style.width = "100%";
+      loadMsg.textContent = "点击开始播放";
+    }
+  });
 }
+loadOverlay.addEventListener("click", () => {
+  if (tapToPlay) {
+    tapToPlay = false;
+    loadOverlay.style.display = "none";
+    video.play().catch(()=>{});
+  }
+});
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
 
-/* ===== 核心下载逻辑：带百分比，成功后缓存 ===== */
 function setPct(p) {
   const v = Math.min(100, Math.floor(p));
   loadPct.textContent = v + "%";
   loadBar.style.width = v + "%";
 }
 
-async function downloadWithProgress(url, label) {
-  loadMsg.textContent = label;
-  const ctrl = new AbortController();
-  loadingController = ctrl;
-  const resp = await fetch(url, { signal: ctrl.signal });
+/* XHR下载：兼容性最好（微信X5等老内核也能跑） */
+function downloadXHR(url) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.responseType = "arraybuffer";
+    xhr.onprogress = (e) => {
+      if (e.lengthComputable) setPct(e.loaded / e.total * 100);
+      else setPct(e.loaded / (16 * 1024 * 1024) * 100);
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300)
+        resolve(new Blob([xhr.response], { type: "video/mp4" }));
+      else reject(new Error("HTTP " + xhr.status));
+    };
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.send();
+  });
+}
+
+/* fetch流式下载：现代浏览器用，百分比更精准 */
+async function downloadStream(url) {
+  const resp = await fetch(url);
   if (!resp.ok) throw new Error("HTTP " + resp.status);
+  if (!resp.body || !resp.body.getReader) throw new Error("no-stream");
   const total = +resp.headers.get("Content-Length") || 0;
   const reader = resp.body.getReader();
   const chunks = [];
@@ -229,43 +276,51 @@ async function downloadWithProgress(url, label) {
     if (done) break;
     chunks.push(value);
     received += value.length;
-    if (total) setPct(received / total * 100);
-    else setPct(received / (16 * 1024 * 1024) * 100); // 无长度头时按16MB估算
+    setPct(total ? received / total * 100 : received / (16*1024*1024) * 100);
   }
   setPct(100);
   return new Blob(chunks, { type: "video/mp4" });
 }
 
+async function trySource(url, label, useStream) {
+  loadMsg.textContent = label;
+  setPct(0);
+  if (useStream) {
+    try { return await downloadStream(url); }
+    catch (e) { if (String(e.message) === "no-stream") return await downloadXHR(url); throw e; }
+  }
+  return await downloadXHR(url);
+}
+
 async function loadVideo() {
-  if (blobReady) return; // 已缓存，直接用
+  if (blobReady) return;
   loadOverlay.style.display = "flex";
-  /* 依次尝试：加速通道 → 直连 */
-  const sources = [
-    [CDN_URL, "正在通过加速通道下载视频…"],
-    [DIRECT_URL, "加速通道不可用，改用直连下载…"]
-  ];
+  /* 线路顺序：普通浏览器=加速优先；微信=直连优先（jsDelivr在微信内常被甩到日本节点） */
+  const useStream = !IS_WECHAT;
+  const sources = IS_WECHAT
+    ? [[DIRECT_URL, "微信内加载中…（建议点右上角···在浏览器打开，更快）"],
+       [CDN_URL,    "切换备用线路…"]]
+    : [[CDN_URL,    "正在通过加速通道下载视频…"],
+       [DIRECT_URL, "加速通道不可用，改用直连下载…"]];
   for (const [url, label] of sources) {
     try {
-      cachedBlob = await downloadWithProgress(url, label);
+      cachedBlob = await trySource(url, label, useStream);
       blobReady = true;
       break;
-    } catch (e) {
-      if (e.name === "AbortError") return; // 被本地文件取代
-      console.warn("加载失败:", url, e);
-    }
+    } catch (e) { console.warn("加载失败:", url, e); }
   }
   if (blobReady) {
     video.src = URL.createObjectURL(cachedBlob);
     video.load();
-    loadMsg.textContent = "✅ 加载完成，开始播放";
+    loadMsg.textContent = "✅ 加载完成";
     srcTip.textContent = "📎 视频：dance4.mp4（已缓存，跳段零等待）";
     setTimeout(() => {
       loadOverlay.style.display = "none";
       seekTo(Math.max(0, (curSeg ? curSeg.sec : 0) + offset));
       tryPlay();
-    }, 400);
+    }, 300);
   } else {
-    loadMsg.textContent = "⚠️ 下载失败，请刷新页面重试";
+    loadMsg.textContent = "⚠️ 下载失败，请刷新页面重试（或点右上角在浏览器打开）";
   }
 }
 
@@ -306,7 +361,6 @@ document.getElementById("pickBtn").onclick = () => fileInput.click();
 fileInput.onchange = () => {
   const f = fileInput.files[0];
   if (!f) return;
-  if (loadingController) loadingController.abort();
   blobReady = true;
   cachedBlob = f;
   video.src = URL.createObjectURL(f);
@@ -425,7 +479,7 @@ segments.forEach((seg) => {
     highlight(seg); formation(seg); updateInfo();
     seekTo(Math.max(0, seg.sec + offset));
     if (blobReady) tryPlay();
-    else loadVideo(); // 首次点击触发下载
+    else loadVideo();
   };
   sideList.appendChild(btn);
 });
@@ -434,7 +488,6 @@ curSeg = segments[0];
 formation(curSeg); highlight(curSeg); updateInfo();
 layoutMode();
 
-/* 页面打开就自动开始下载视频（不等用户点按钮） */
 loadVideo();
 
 document.getElementById("loopBtn").onclick = function() {
