@@ -3,18 +3,16 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段练习 v3.4</title>
+<title>我最可爱的地方 - 走位分段</title>
 <!--
   ============ 改动记录 ============
+  v3.6
+    - 微信提示页文案改为「检测到微信环境，为获得更好的速度和体验…」
+    - 浏览器端线路不变：jsDelivr优先，失败静默换直连
+  v3.5
+    - 删除顶部说明文字；微信内不加载视频只显示引导页；下载统一XHR
   v3.4
-    - 段落按钮显示「加了偏移后」的视频实际时间（0:00不变，18s→0:21…）
-    - 设置里改偏移量后按钮文字自动刷新
-  v3.3
-    - 识别微信：XHR下载防假死、直连优先、提示「在浏览器打开」
-  v3.2
-    - 完整下载后播放，百分比进度条，缓存后跳段零等待
-  v3.1
-    - 标题改歌名；走位图放大圆点缩小；只留dance4；偏移内置3s
+    - 按钮时间含偏移（0:00不变，18s→0:21）
   =================================
 -->
 <style>
@@ -28,9 +26,11 @@
   .btn.active { background: #ff5c8a; }
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
-  #wxBar { display: none; background: #4a3a10; color: #ffd77a; border: 1px solid #a08030;
-           border-radius: 8px; padding: 9px 12px; margin: 0 auto 8px; max-width: 900px;
-           font-size: 13px; text-align: center; line-height: 1.6; }
+  #wxBlock { display: none; max-width: 480px; margin: 40px auto; text-align: center;
+             background: #2a1f30; border: 1px solid #a06ea0; border-radius: 14px;
+             padding: 28px 20px; }
+  #wxBlock .big { font-size: 17px; color: #ffd7e6; margin-bottom: 14px; line-height: 1.8; }
+  #wxBlock .steps { font-size: 14px; color: #ccc; line-height: 2.1; }
   #layout { display: flex; gap: 14px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
   #main { flex: 1 1 auto; min-width: 0; width: 100%; }
   #side { flex: 0 0 190px; position: sticky; top: 12px; }
@@ -91,17 +91,19 @@
 </head>
 <body>
 
-<div id="wxBar">
-  🐾 检测到你在微信里打开<br>
-  微信内置浏览器加载较慢，建议点右上角「···」→ <b>在浏览器打开</b>，速度和体验都会好很多
+<!-- 微信内显示的引导页（其余内容全部隐藏） -->
+<div id="wxBlock">
+  <div class="big">🐾 检测到你在微信中打开<br>为了更好的速度和体验<br>建议使用浏览器打开本页面</div>
+  <div class="steps">
+    ① 点击右上角「···」<br>
+    ② 选择「在浏览器打开」<br>
+    ③ 稍等几秒视频加载完，即可随意跳段练习
+  </div>
 </div>
 
-<div id="layout">
+<div id="layout" style="display:none;">
   <div id="main">
     <h1>🎵 我最可爱的地方</h1>
-    <div class="tip" style="text-align:center; color:#f06ea9; margin:2px 0 6px; font-size:12px;">
-      按钮时间为视频实际位置（已含偏移）｜首次打开需完整加载视频（约16MB）｜ v3.4
-    </div>
 
     <div class="row">
       <button id="loopBtn" class="btn small">🔁 循环本段：关</button>
@@ -151,13 +153,18 @@
 </div>
 
 <script>
-/* ===== 环境识别 ===== */
-const IS_WECHAT = /MicroMessenger/i.test(navigator.userAgent);
+/* ===== 微信检测：显示引导页，不加载视频 ===== */
+if (/MicroMessenger/i.test(navigator.userAgent)) {
+  document.getElementById("wxBlock").style.display = "block";
+} else {
+  document.getElementById("layout").style.display = "flex";
+  initPage();
+}
 
+function initPage() {
+/* 线路：jsDelivr加速优先，失败静默换直连 */
 const CDN_URL    = "https://cdn.jsdelivr.net/gh/Zzzzaaaaaa/dance@main/dance4.mp4";
 const DIRECT_URL = "https://zzzzaaaaaa.github.io/dance/dance4.mp4";
-
-if (IS_WECHAT) document.getElementById("wxBar").style.display = "block";
 
 const video = document.getElementById("danceVideo");
 const loadOverlay = document.getElementById("loadOverlay");
@@ -172,7 +179,6 @@ const side = document.getElementById("side");
 const sideList = document.getElementById("sideList");
 const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
-const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
 
 const mq = window.matchMedia("(max-width: 900px)");
@@ -240,7 +246,7 @@ function setPct(p) {
   loadBar.style.width = v + "%";
 }
 
-/* XHR下载：兼容性最好（微信X5等老内核也能跑） */
+/* XHR下载（带百分比） */
 function downloadXHR(url) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -260,48 +266,19 @@ function downloadXHR(url) {
   });
 }
 
-/* fetch流式下载：现代浏览器用，百分比更精准 */
-async function downloadStream(url) {
-  const resp = await fetch(url);
-  if (!resp.ok) throw new Error("HTTP " + resp.status);
-  if (!resp.body || !resp.body.getReader) throw new Error("no-stream");
-  const total = +resp.headers.get("Content-Length") || 0;
-  const reader = resp.body.getReader();
-  const chunks = [];
-  let received = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    chunks.push(value);
-    received += value.length;
-    setPct(total ? received / total * 100 : received / (16*1024*1024) * 100);
-  }
-  setPct(100);
-  return new Blob(chunks, { type: "video/mp4" });
-}
-
-async function trySource(url, label, useStream) {
-  loadMsg.textContent = label;
-  setPct(0);
-  if (useStream) {
-    try { return await downloadStream(url); }
-    catch (e) { if (String(e.message) === "no-stream") return await downloadXHR(url); throw e; }
-  }
-  return await downloadXHR(url);
-}
-
 async function loadVideo() {
   if (blobReady) return;
   loadOverlay.style.display = "flex";
-  const useStream = !IS_WECHAT;
-  const sources = IS_WECHAT
-    ? [[DIRECT_URL, "微信内加载中…（建议点右上角···在浏览器打开，更快）"],
-       [CDN_URL,    "切换备用线路…"]]
-    : [[CDN_URL,    "正在通过加速通道下载视频…"],
-       [DIRECT_URL, "加速通道不可用，改用直连下载…"]];
+  /* jsDelivr优先 → 直连备用（静默切换） */
+  const sources = [
+    [CDN_URL,    "正在加载视频…"],
+    [DIRECT_URL, "正在加载视频…"]
+  ];
   for (const [url, label] of sources) {
+    loadMsg.textContent = label;
+    setPct(0);
     try {
-      cachedBlob = await trySource(url, label, useStream);
+      cachedBlob = await downloadXHR(url);
       blobReady = true;
       break;
     } catch (e) { console.warn("加载失败:", url, e); }
@@ -317,7 +294,7 @@ async function loadVideo() {
       tryPlay();
     }, 300);
   } else {
-    loadMsg.textContent = "⚠️ 下载失败，请刷新页面重试（或点右上角在浏览器打开）";
+    loadMsg.textContent = "⚠️ 下载失败，请刷新页面重试";
   }
 }
 
@@ -418,7 +395,7 @@ segments.forEach((s, i) => {
   s.end = i < segments.length - 1 ? segments[i+1].sec : 254;
 });
 
-/* v3.4：按钮显示加偏移后的实际视频时间（0:00 保持不变） */
+/* 按钮时间 = 走位时间 + 偏移（0:00 不变） */
 function fmt(sec) {
   const t = (sec === 0) ? 0 : sec + offset;
   return `${Math.floor(t/60)}:${String(Math.round(t%60)).padStart(2,"0")}`;
@@ -528,6 +505,7 @@ setInterval(() => {
     formation(seg); highlight(seg); updateInfo();
   }
 }, 200);
+}
 </script>
 
 </body>
