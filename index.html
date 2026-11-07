@@ -3,9 +3,30 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版 v2.3</title>
+<title>走位分段练习 MP4版 v2.6</title>
+<!--
+  ============ 改动记录 ============
+  v2.6
+    - 循环本段：两个版本均默认关闭（撤销v2.5给纯练习室版默认开启的决定）
+  v2.5
+    - 默认有声播放（去掉muted；浏览器拦截自动播放时显示点击提示）
+    - 视频切换按钮、循环/重播/设置按钮、提示文字全部移到视频上方
+  v2.4
+    - 时间偏移量按视频文件分别记忆
+    - 视频按钮改为：纯练习室版(dance3.mp4,默认) / 走位图版(dance.mp4)，移除dance2
+    - 手机走位图始终完整缩放进屏幕（不再裁切+滑动）
+    - 修复旧iOS视频容器高度塌陷导致的画面重叠
+    - 修复页面横向溢出
+  v2.3
+    - 段落时间轴整体前移2秒（写死），默认偏移归0
+    - 新增视频切换按钮；0:32段红色3号左移一格
+  v2.2
+    - 手机端段落胶囊条移至视频正下方；走位图最小缩放0.62可横滑
+  =================================
+-->
 <style>
-  body { font-family: sans-serif; margin: 0; padding: 12px; background: #16161f; color: #eee; }
+  body { font-family: sans-serif; margin: 0; padding: 12px; background: #16161f; color: #eee;
+         overflow-x: hidden; }
   .tip { color: #888; font-size: 13px; }
   .btn { display: inline-block; margin: 3px; padding: 8px 12px; border-radius: 7px;
          background: #2e2e4e; color: #fff; cursor: pointer; border: none; font-size: 13px; }
@@ -14,7 +35,7 @@
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
   #layout { display: flex; gap: 14px; max-width: 1180px; margin: 0 auto; align-items: flex-start; }
-  #main { flex: 1 1 auto; min-width: 0; }
+  #main { flex: 1 1 auto; min-width: 0; width: 100%; }
   #side { flex: 0 0 190px; position: sticky; top: 12px; }
   #sideList { max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px;
               padding: 10px; background: #1c1c2a; border-radius: 10px; }
@@ -32,11 +53,14 @@
                       display: flex; align-items: center; justify-content: center; }
   #overlayMsg { color: #ffe9a0; font-size: 14px; text-shadow: 0 1px 3px #000;
                 text-align: center; padding: 0 12px; }
-  .row { text-align: center; margin: 8px 0; }
-  #videoSel { text-align: center; margin: 6px 0; }
+  .row { display: flex; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
+  #videoSel { display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+              margin: 6px 0; }
   #videoSel .btn.sel { background: #2fae60; }
-  #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0; }
-  #stageScroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; }
+  #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0;
+          word-break: break-all; }
+  #stageScroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
+                 width: 100%; }
   #stageWrap { display: flex; justify-content: center; margin-top: 8px; }
   #stage { position: relative; width: 720px; height: 420px; flex: none;
            transform-origin: top left;
@@ -79,23 +103,15 @@
 
 <div id="layout">
   <div id="main">
-    <div id="videoWrap">
-      <video id="danceVideo" controls muted playsinline webkit-playsinline preload="auto"></video>
-      <div id="playOverlay"><div class="big">▶</div><div id="overlayMsg"></div></div>
-    </div>
-
-    <div id="mobileSlot" style="display:none;"></div>
-
+    <!-- ===== 控制区（视频上方） ===== -->
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      🔇 默认静音自动播放；想听声音点视频自带音量键 ｜ MP4版 v2.3（时间轴已整体-2秒）
+      🔊 有声播放；浏览器拦截自动播放时点一下画面即可 ｜ MP4版 v2.6
     </div>
 
-    <!-- 视频切换 -->
     <div id="videoSel">
       <span class="tip">🎬 视频：</span>
-      <button class="btn small vsrc" data-src="dance.mp4">dance</button>
-      <button class="btn small vsrc" data-src="dance2.mp4">dance2</button>
-      <button class="btn small vsrc" data-src="dance3.mp4">dance3</button>
+      <button class="btn small vsrc" data-src="dance3.mp4">纯练习室版</button>
+      <button class="btn small vsrc" data-src="dance.mp4">走位图版</button>
     </div>
 
     <div class="row">
@@ -108,14 +124,14 @@
       <div class="setRow">
         <label>自定义视频文件名（或网址）：</label><br>
         <input id="srcInput" type="text" placeholder="例如 mydance.mp4">
-        <div class="tip" style="margin-top:4px;">用上面 dance/dance2/dance3 按钮可快速切换；文件需放在与本页面同一文件夹</div>
+        <div class="tip" style="margin-top:4px;">用上面按钮可快速切换两个版本；文件需与本页面同文件夹</div>
       </div>
       <div class="setRow">
         <button id="pickBtn" class="btn small">📂 选择手机/电脑里的MP4</button>
       </div>
       <div class="setRow">
-        <label>时间偏移微调（秒，默认0已校准）：</label>
-        <input id="offsetInput" type="number" step="0.1" min="-3" max="3" value="0">
+        <label>时间偏移微调（秒，<b>按当前视频分别记忆</b>）：</label>
+        <input id="offsetInput" type="number" step="0.1" min="-10" max="10" value="0">
       </div>
       <div class="setRow">
         <button id="saveSet" class="btn small">💾 保存并应用</button>
@@ -124,13 +140,20 @@
     </div>
     <input type="file" id="fileInput" accept="video/*" style="display:none">
 
+    <div id="videoWrap">
+      <video id="danceVideo" controls playsinline webkit-playsinline preload="auto"></video>
+      <div id="playOverlay"><div class="big">▶</div><div id="overlayMsg"></div></div>
+    </div>
+    <!-- ===== 控制区结束，下方为走位图 ===== -->
+
+    <div id="mobileSlot" style="display:none;"></div>
+
     <div id="info"></div>
     <div id="stageScroll">
       <div id="stageWrap"><div id="stage"></div></div>
     </div>
     <div class="tip" style="text-align:center; margin-top:4px;">
-      💡 圆点挤在一起时，碰一下哪个就放大到最上层｜点击圆点可单独高亮成员<br>
-      📱 手机上走位图可<b>左右滑动</b>查看两边
+      💡 圆点挤在一起时，碰一下哪个就放大到最上层｜点击圆点可单独高亮成员
     </div>
   </div>
 
@@ -155,6 +178,7 @@ const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
 const stageWrap = document.getElementById("stageWrap");
 const stageScroll = document.getElementById("stageScroll");
+const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
 
 /* ===== 手机/电脑布局切换 ===== */
@@ -172,17 +196,18 @@ function layoutMode() {
 }
 mq.addEventListener ? mq.addEventListener("change", layoutMode) : mq.addListener(layoutMode);
 
-/* ===== 设置（v2.3：时间已写死-2，默认offset=0） ===== */
-let settings = { src: "dance.mp4", offset: 0 };
+/* ===== 设置：偏移量按视频分别记忆 ===== */
+let settings = { src: "dance3.mp4", offsets: {} };
 try {
-  const s = JSON.parse(localStorage.getItem("danceSettings_v23"));
-  if (s && typeof s.src === "string" && s.src && isFinite(s.offset)) settings = s;
+  const s = JSON.parse(localStorage.getItem("danceSettings_v24"));
+  if (s && typeof s.src === "string" && s.src && typeof s.offsets === "object") settings = s;
+  if (settings.src === "dance2.mp4") settings.src = "dance3.mp4";
 } catch(e) {}
-function saveSettings() { try { localStorage.setItem("danceSettings_v23", JSON.stringify(settings)); } catch(e) {} }
-srcInput.value = settings.src;
-offsetInput.value = settings.offset;
+function saveSettings() { try { localStorage.setItem("danceSettings_v24", JSON.stringify(settings)); } catch(e) {} }
+function curOff() { return settings.offsets[settings.src] || 0; }
 
 let blobSrc = null, pendingSeek = null;
+let loopOn = false, curSeg = null; // v2.6：循环默认关闭
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -197,7 +222,7 @@ function tryPlay() {
           video.play().then(hideOverlay).catch(() => showOverlay("▶ 点击开始播放"));
         }, { once: true });
       } else {
-        showOverlay("▶ 点击开始播放（浏览器拦截了自动播放，点一下就好）");
+        showOverlay("▶ 点击开始播放（浏览器拦截了有声自动播放，点一下就好）");
       }
     });
   }
@@ -224,12 +249,14 @@ video.addEventListener("error", () => {
 
 function applySrc() {
   video.src = blobSrc || settings.src;
-  pendingSeek = Math.max(0, (curSeg ? curSeg.sec : 0) + settings.offset);
+  pendingSeek = Math.max(0, (curSeg ? curSeg.sec : 0) + curOff());
   video.load();
   tryPlay();
-  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地选择的文件" : settings.src);
+  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地选择的文件" : settings.src) +
+    "（偏移 " + curOff() + "s）";
   document.querySelectorAll("#videoSel .vsrc").forEach(b =>
     b.classList.toggle("sel", !blobSrc && b.dataset.src === settings.src));
+  offsetInput.value = curOff();
 }
 
 /* ===== 视频切换按钮 ===== */
@@ -242,8 +269,7 @@ document.querySelectorAll("#videoSel .vsrc").forEach(btn => {
   };
 });
 
-// ============ 走位数据：35段，时间已整体-2秒（v2.3） ============
-// 34秒段：红色3号已向左移一格（5.5 → 4.5）
+// ============ 走位数据：35段 ============
 const segments = [
   { sec:0,   1:[6,3], 2:[5,2], 3:[7,4], 4:[4,3], 5:[8,3], 6:[7,2], 7:[5,4] },
   { sec:18,  1:[6,3], 2:[7,4], 3:[5,2], 4:[8,3], 5:[4,3], 6:[5,4], 7:[7,2] },
@@ -291,19 +317,20 @@ const colors = { 1:"#f06ea9", 2:"#6ee07a", 3:"#e05252", 4:"#f5923e",
 const GRID = 60, COLS = 12, ROWS = 7;
 const CX = 6, CY = 3.5;
 
+function fitVideo() {
+  videoWrap.style.height = (videoWrap.clientWidth * 9 / 16) + "px";
+}
 function fitStage() {
-  const avail = stageScroll.clientWidth;
+  const avail = stageScroll.clientWidth || (window.innerWidth - 24);
   let s = avail / (COLS*GRID);
   if (s > 1) s = 1;
-  if (s < 0.62) s = 0.62;
   stage.style.transform = "scale(" + s + ")";
   stageWrap.style.width = (COLS*GRID*s) + "px";
   stageWrap.style.height = (ROWS*GRID*s) + "px";
-  stageScroll.scrollLeft = (stageScroll.scrollWidth - stageScroll.clientWidth) / 2;
 }
-window.addEventListener("resize", () => { fitStage(); layoutMode(); });
-setTimeout(fitStage, 0);
-setTimeout(fitStage, 300);
+window.addEventListener("resize", () => { fitStage(); fitVideo(); layoutMode(); });
+setTimeout(() => { fitStage(); fitVideo(); }, 0);
+setTimeout(() => { fitStage(); fitVideo(); }, 300);
 
 const dots = {};
 for (const id in colors) {
@@ -358,31 +385,33 @@ segments.forEach((seg) => {
   btn.onclick = () => {
     curSeg = seg;
     highlight(seg); formation(seg); updateInfo();
-    seekTo(Math.max(0, seg.sec + settings.offset));
+    seekTo(Math.max(0, seg.sec + curOff()));
     tryPlay();
   };
   sideList.appendChild(btn);
 });
 
 document.getElementById("setBtn").onclick = () => {
+  offsetInput.value = curOff();
   settingsPanel.style.display = settingsPanel.style.display === "none" ? "block" : "none";
 };
 document.getElementById("saveSet").onclick = () => {
-  const newSrc = srcInput.value.trim() || "dance.mp4";
   let off = parseFloat(offsetInput.value);
   if (isNaN(off)) off = 0;
-  off = Math.max(-3, Math.min(3, off));
+  off = Math.max(-10, Math.min(10, off));
+  const newSrc = srcInput.value.trim() || settings.src;
   const srcChanged = newSrc !== settings.src;
-  settings = { src: newSrc, offset: off };
+  settings.src = newSrc;
+  settings.offsets[newSrc] = off;
   saveSettings();
-  if (srcChanged) applySrc();
-  else { seekTo(Math.max(0, curSeg.sec + off)); tryPlay(); }
+  applySrc();
+  if (!srcChanged) { seekTo(Math.max(0, curSeg.sec + off)); tryPlay(); }
   settingsPanel.style.display = "none";
 };
 document.getElementById("resetSet").onclick = () => {
-  settings = { src: "dance.mp4", offset: 0 };
+  settings = { src: "dance3.mp4", offsets: {} };
   saveSettings();
-  srcInput.value = settings.src; offsetInput.value = 0;
+  srcInput.value = settings.src;
   applySrc();
   settingsPanel.style.display = "none";
 };
@@ -395,7 +424,7 @@ fileInput.onchange = () => {
   applySrc();
 };
 
-let loopOn = false, curSeg = segments[0];
+curSeg = segments[0];
 formation(curSeg); highlight(curSeg); updateInfo();
 layoutMode();
 
@@ -403,16 +432,16 @@ document.getElementById("loopBtn").onclick = function() {
   loopOn = !loopOn;
   this.textContent = loopOn ? "🔁 循环本段：开" : "🔁 循环本段：关";
   this.classList.toggle("on", loopOn);
-  if (loopOn) seekTo(Math.max(0, curSeg.sec + settings.offset));
+  if (loopOn) seekTo(Math.max(0, curSeg.sec + curOff()));
 };
 document.getElementById("syncBtn").onclick = () => {
-  seekTo(Math.max(0, curSeg.sec + settings.offset));
+  seekTo(Math.max(0, curSeg.sec + curOff()));
   tryPlay();
 };
 
 setInterval(() => {
   if (!curSeg || video.readyState < 1) return;
-  const t = video.currentTime, off = settings.offset;
+  const t = video.currentTime, off = curOff();
   if (loopOn) {
     if (t >= curSeg.end + off - 0.05)
       video.currentTime = Math.max(0, curSeg.sec + off);
@@ -426,6 +455,7 @@ setInterval(() => {
   }
 }, 200);
 
+srcInput.value = settings.src;
 applySrc();
 </script>
 
