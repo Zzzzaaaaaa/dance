@@ -3,27 +3,25 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版 v2.8</title>
+<title>走位分段练习 MP4版 v2.9</title>
 <!--
   ============ 改动记录 ============
+  v2.9
+    - 视频改走jsDelivr国内加速通道（大幅提升加载速度）；加速失效时自动回落本地文件，不会再404
   v2.8
-    - 播放策略改回静音自动播放+「开声音」按钮（修复iOS上非静音视频卡在第一帧无法播放的问题，苹果系统限制）
+    - 静音自动播放+「开声音」按钮（修复iOS非静音视频卡住的问题）
   v2.7
-    - 重写走位图定位：百分比布局替代JS缩放（根除手机端走位图错位/裁切）
-    - 视频缓冲时显示"加载中"提示
+    - 走位图改百分比定位（修复手机端错位）；缓冲提示
   v2.6
-    - 循环本段：两个版本均默认关闭
-    - 代码顶部新增改动记录注释
+    - 循环本段默认关闭；顶部加改动记录
   v2.5
-    - 控制按钮和提示文字移到视频上方（本次撤销其去静音部分）
+    - 控制按钮移到视频上方
   v2.4
-    - 时间偏移量按视频文件分别记忆
-    - 视频按钮改为：纯练习室版(dance3.mp4,默认) / 走位图版(dance.mp4)，移除dance2
-    - 修复旧iOS视频容器高度塌陷；修复页面横向溢出
+    - 偏移量按视频分别记忆；视频按钮改为dance3(默认)/dance
   v2.3
-    - 段落时间轴整体前移2秒（写死），默认偏移归0
+    - 时间轴前移2秒
   v2.2
-    - 手机端段落胶囊条移至视频正下方
+    - 手机端段落条移到视频下方
   =================================
 -->
 <style>
@@ -104,9 +102,8 @@
 
 <div id="layout">
   <div id="main">
-    <!-- ===== 控制区（视频上方） ===== -->
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      ▶️ 自动播放（默认静音，苹果系统规定）；点下方黄按钮开声音 ｜ MP4版 v2.8
+      ▶️ 自动播放（默认静音）；点黄色按钮开声音 ｜ MP4版 v2.9（加速版）
     </div>
 
     <div id="videoSel">
@@ -126,13 +123,12 @@
       <div class="setRow">
         <label>自定义视频文件名（或网址）：</label><br>
         <input id="srcInput" type="text" placeholder="例如 mydance.mp4">
-        <div class="tip" style="margin-top:4px;">用上面按钮可快速切换两个版本；文件需与本页面同文件夹</div>
       </div>
       <div class="setRow">
         <button id="pickBtn" class="btn small">📂 选择手机/电脑里的MP4</button>
       </div>
       <div class="setRow">
-        <label>时间偏移微调（秒，<b>按当前视频分别记忆</b>）：</label>
+        <label>时间偏移微调（秒，按视频分别记忆）：</label>
         <input id="offsetInput" type="number" step="0.1" min="-10" max="10" value="0">
       </div>
       <div class="setRow">
@@ -146,7 +142,6 @@
       <video id="danceVideo" controls muted playsinline webkit-playsinline preload="auto"></video>
       <div id="playOverlay"><div class="big">▶</div><div id="overlayMsg"></div></div>
     </div>
-    <!-- ===== 控制区结束，下方为走位图 ===== -->
 
     <div id="mobileSlot" style="display:none;"></div>
 
@@ -166,6 +161,10 @@
 </div>
 
 <script>
+/* ===== v2.9：jsDelivr加速（你的仓库：Zzzzaaaaaa/dance）=====
+   视频优先走加速通道；如果加速失败，自动改用直连，绝不会卡死 */
+const CDN = "https://cdn.jsdelivr.net/gh/Zzzzaaaaaa/dance@main/";
+
 const video = document.getElementById("danceVideo");
 const overlay = document.getElementById("playOverlay");
 const overlayMsg = document.getElementById("overlayMsg");
@@ -182,7 +181,6 @@ const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
 const soundBtn = document.getElementById("soundBtn");
 
-/* ===== 手机/电脑布局切换 ===== */
 const mq = window.matchMedia("(max-width: 900px)");
 function layoutMode() {
   if (mq.matches) {
@@ -197,7 +195,6 @@ function layoutMode() {
 }
 mq.addEventListener ? mq.addEventListener("change", layoutMode) : mq.addListener(layoutMode);
 
-/* ===== 设置：偏移量按视频分别记忆 ===== */
 let settings = { src: "dance3.mp4", offsets: {} };
 try {
   const s = JSON.parse(localStorage.getItem("danceSettings_v24"));
@@ -209,12 +206,12 @@ function curOff() { return settings.offsets[settings.src] || 0; }
 
 let blobSrc = null, pendingSeek = null;
 let loopOn = false, curSeg = null;
+let viaCDN = false; // 当前是否正在用加速通道
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
   else pendingSeek = t;
 }
-/* v2.8：默认静音播放，苹果系统对静音自动播放完全放行 */
 function tryPlay() {
   const p = video.play();
   if (p && p.then) {
@@ -233,7 +230,6 @@ function showOverlay(msg) { overlayMsg.textContent = msg; overlay.style.display 
 function hideOverlay() { overlay.style.display = "none"; }
 overlay.addEventListener("click", (e) => { e.stopPropagation(); tryPlay(); });
 
-/* ===== v2.8：一键开声音（用户的点击动作让系统放行） ===== */
 soundBtn.onclick = () => {
   video.muted = false;
   video.volume = 1;
@@ -241,47 +237,51 @@ soundBtn.onclick = () => {
   soundBtn.classList.add("on");
 };
 video.addEventListener("volumechange", () => {
-  if (!video.muted) {
-    soundBtn.textContent = "🔊 声音已开";
-    soundBtn.classList.add("on");
-  } else if (!soundBtn.classList.contains("on")) {
-    soundBtn.textContent = "🔊 开声音（点一下）";
-  }
+  if (!video.muted) { soundBtn.textContent = "🔊 声音已开"; soundBtn.classList.add("on"); }
 });
 
 video.addEventListener("playing", hideOverlay);
 video.addEventListener("waiting", () => {
-  if (!video.paused) showOverlay("⏳ 加载中…（服务器在国外，请稍等）");
+  if (!video.paused) showOverlay("⏳ 加载中…");
 });
 video.addEventListener("canplay", () => { if (!video.paused) hideOverlay(); });
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
+
+/* 加载失败：若正在走加速通道，自动回落到直连本地文件 */
 video.addEventListener("error", () => {
-  const e = video.error;
-  let hint = "未知错误（文件不存在？检查文件名）";
-  if (e) {
-    if (e.code === 2) hint = "下载中断/文件损坏";
-    else if (e.code === 3) hint = "解码失败：编码不是 H.264，需转码";
-    else if (e.code === 4) hint = "格式不支持/文件不存在：检查文件名或转码为 H.264";
+  if (viaCDN && !blobSrc) {
+    viaCDN = false;
+    video.src = settings.src;
+    video.load();
+    tryPlay();
+    srcTip.textContent = "📎 加速通道不可用，已改用直连：" + settings.src;
+    return;
   }
-  showOverlay("⚠️ " + hint + "（错误码 " + (e ? e.code : "?") + "）");
+  const e = video.error;
+  showOverlay("⚠️ 视频加载失败（" + (e ? "错误码 " + e.code : "未知") + "），请刷新页面重试");
 });
 
 function applySrc() {
   video.src = blobSrc || settings.src;
-  video.muted = !soundBtn.classList.contains("on"); // 换视频后保持用户的声音选择
+  viaCDN = false;
+  /* 普通文件名才走加速通道（用户手输的网址/本地文件不走） */
+  if (!blobSrc && !/^(https?:|blob:)/i.test(settings.src)) {
+    video.src = CDN + settings.src;
+    viaCDN = true;
+  }
+  video.muted = !soundBtn.classList.contains("on");
   pendingSeek = Math.max(0, (curSeg ? curSeg.sec : 0) + curOff());
   video.load();
   tryPlay();
-  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地选择的文件" : settings.src) +
-    "（偏移 " + curOff() + "s）";
+  srcTip.textContent = "📎 视频：" + (blobSrc ? "本地文件" : settings.src) +
+    (viaCDN ? "（加速中）" : "") + "（偏移 " + curOff() + "s）";
   document.querySelectorAll("#videoSel .vsrc").forEach(b =>
     b.classList.toggle("sel", !blobSrc && b.dataset.src === settings.src));
   offsetInput.value = curOff();
 }
 
-/* ===== 视频切换按钮 ===== */
 document.querySelectorAll("#videoSel .vsrc").forEach(btn => {
   btn.onclick = () => {
     if (blobSrc) { URL.revokeObjectURL(blobSrc); blobSrc = null; }
