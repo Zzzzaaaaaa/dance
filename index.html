@@ -3,16 +3,20 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段</title>
+<title>我最可爱的地方 - 走位分段练习 v3.7</title>
 <!--
   ============ 改动记录 ============
+  v3.7
+    - 浏览器端恢复 v3.2 的 fetch 流式下载（速度回归）
+    - XHR 仅作为兜底，微信端仍为引导页
   v3.6
-    - 微信提示页文案改为「检测到微信环境，为获得更好的速度和体验…」
-    - 浏览器端线路不变：jsDelivr优先，失败静默换直连
+    - 微信提示页文案柔化
   v3.5
-    - 删除顶部说明文字；微信内不加载视频只显示引导页；下载统一XHR
+    - 删顶部说明；微信不加载只引导
   v3.4
-    - 按钮时间含偏移（0:00不变，18s→0:21）
+    - 按钮时间含偏移
+  v3.2
+    - 完整下载后播放 + 百分比 + jsDelivr优先
   =================================
 -->
 <style>
@@ -91,7 +95,7 @@
 </head>
 <body>
 
-<!-- 微信内显示的引导页（其余内容全部隐藏） -->
+<!-- 微信内显示的引导页 -->
 <div id="wxBlock">
   <div class="big">🐾 检测到你在微信中打开<br>为了更好的速度和体验<br>建议使用浏览器打开本页面</div>
   <div class="steps">
@@ -246,7 +250,27 @@ function setPct(p) {
   loadBar.style.width = v + "%";
 }
 
-/* XHR下载（带百分比） */
+/* ===== v3.2 同款：fetch 流式下载（浏览器端主力，速度快） ===== */
+async function downloadStream(url) {
+  const resp = await fetch(url);
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  if (!resp.body || !resp.body.getReader) throw new Error("no-stream");
+  const total = +resp.headers.get("Content-Length") || 0;
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    setPct(total ? received / total * 100 : received / (16*1024*1024) * 100);
+  }
+  setPct(100);
+  return new Blob(chunks, { type: "video/mp4" });
+}
+
+/* XHR 兜底（万一某浏览器流式不可用） */
 function downloadXHR(url) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -269,7 +293,7 @@ function downloadXHR(url) {
 async function loadVideo() {
   if (blobReady) return;
   loadOverlay.style.display = "flex";
-  /* jsDelivr优先 → 直连备用（静默切换） */
+  /* jsDelivr优先 → 直连备用；流式优先 → XHR兜底 */
   const sources = [
     [CDN_URL,    "正在加载视频…"],
     [DIRECT_URL, "正在加载视频…"]
@@ -278,10 +302,17 @@ async function loadVideo() {
     loadMsg.textContent = label;
     setPct(0);
     try {
-      cachedBlob = await downloadXHR(url);
+      cachedBlob = await downloadStream(url);
       blobReady = true;
       break;
-    } catch (e) { console.warn("加载失败:", url, e); }
+    } catch (e) {
+      console.warn("流式失败，尝试XHR:", url, e);
+      try {
+        cachedBlob = await downloadXHR(url);
+        blobReady = true;
+        break;
+      } catch (e2) { console.warn("XHR也失败:", url, e2); }
+    }
   }
   if (blobReady) {
     video.src = URL.createObjectURL(cachedBlob);
