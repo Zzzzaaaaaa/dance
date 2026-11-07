@@ -3,17 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段练习 v3.1</title>
+<title>我最可爱的地方 - 走位分段练习 v3.2</title>
 <!--
   ============ 改动记录 ============
+  v3.2
+    - 视频改为「完整下载后才播放」，顶部显示加载百分比进度条
+    - 下载完成后缓存，反复跳段零等待
+    - 重新启用jsDelivr加速（视频已降到16MB，低于20MB上限），失败自动回落直连
   v3.1
-    - 标题改为歌名「我最可爱的地方」
-    - 走位图放大（最大720→900px），圆点缩小（36→26px），更清楚
-    - 只保留 dance4.mp4 一个视频
-    - dance4 偏移量内置为 3 秒
-  v3.0（大简化）
-    - 纯直连、点击播放（无声自动播放的坑全部移除）
-    - 循环本段 / 偏移微调 / 本地选文件 / 成员高亮 保留
+    - 标题改歌名；走位图放大圆点缩小；只留dance4；偏移内置3s
+  v3.0
+    - 纯直连、点击播放
   =================================
 -->
 <style>
@@ -38,6 +38,15 @@
   #videoWrap { position: relative; width: 100%; max-width: 760px; margin: 0 auto;
                aspect-ratio: 16/9; border-radius: 10px; overflow: hidden; background: #000; }
   #danceVideo { position: absolute; width: 100%; height: 100%; object-fit: contain; }
+  #loadOverlay { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 10;
+                 display: flex; flex-direction: column; align-items: center; justify-content: center;
+                 background: rgba(0,0,0,.72); gap: 12px; }
+  #loadPct { font-size: 22px; color: #7cf; font-weight: bold; }
+  #loadMsg { font-size: 13px; color: #bbb; }
+  #loadBarBg { width: 60%; max-width: 320px; height: 10px; background: #333; border-radius: 5px;
+               overflow: hidden; }
+  #loadBar { width: 0%; height: 100%; background: linear-gradient(90deg,#4a6cf7,#2fae60);
+             transition: width .2s; }
   .row { display: flex; flex-wrap: wrap; justify-content: center; margin: 8px 0; }
   #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0; }
   #stage { position: relative; width: 100%; max-width: 900px; margin: 8px auto 0;
@@ -82,7 +91,7 @@
   <div id="main">
     <h1>🎵 我最可爱的地方</h1>
     <div class="tip" style="text-align:center; color:#f06ea9; margin:2px 0 6px; font-size:12px;">
-      点段落按钮播放对应段（有声）｜进度条可自由拖动 ｜ v3.1
+      首次打开需完整加载视频（约16MB，有进度条），之后跳段零等待 ｜ v3.2
     </div>
 
     <div class="row">
@@ -107,7 +116,12 @@
     <input type="file" id="fileInput" accept="video/*" style="display:none">
 
     <div id="videoWrap">
-      <video id="danceVideo" controls playsinline webkit-playsinline preload="metadata" src="dance4.mp4"></video>
+      <video id="danceVideo" controls playsinline webkit-playsinline preload="auto"></video>
+      <div id="loadOverlay">
+        <div id="loadPct">0%</div>
+        <div id="loadBarBg"><div id="loadBar"></div></div>
+        <div id="loadMsg">正在通过加速通道下载视频…</div>
+      </div>
     </div>
 
     <div id="mobileSlot" style="display:none;"></div>
@@ -128,7 +142,15 @@
 </div>
 
 <script>
+/* ===== 视频来源：先加速，失败自动回落直连 ===== */
+const CDN_URL    = "https://cdn.jsdelivr.net/gh/Zzzzaaaaaa/dance@main/dance4.mp4";
+const DIRECT_URL = "https://zzzzaaaaaa.github.io/dance/dance4.mp4";
+
 const video = document.getElementById("danceVideo");
+const loadOverlay = document.getElementById("loadOverlay");
+const loadPct = document.getElementById("loadPct");
+const loadBar = document.getElementById("loadBar");
+const loadMsg = document.getElementById("loadMsg");
 const settingsPanel = document.getElementById("settingsPanel");
 const offsetInput = document.getElementById("offsetInput");
 const fileInput = document.getElementById("fileInput");
@@ -155,19 +177,23 @@ function layoutMode() {
 mq.addEventListener ? mq.addEventListener("change", layoutMode) : mq.addListener(layoutMode);
 
 /* ===== 设置：默认视频 dance4，偏移内置 3 秒 ===== */
-const DEFAULTS = { src: "dance4.mp4", offsets: { "dance4.mp4": 3 } };
-let settings = JSON.parse(JSON.stringify(DEFAULTS));
+const DEFAULT_OFF = 3;
+let offset = DEFAULT_OFF;
 try {
   const s = JSON.parse(localStorage.getItem("danceSettings_v31"));
-  if (s && typeof s.offsets === "object") {
-    settings.offsets = Object.assign({}, DEFAULTS.offsets, s.offsets);
-  }
+  if (s && typeof s.offsets === "object" && typeof s.offsets["dance4.mp4"] === "number")
+    offset = s.offsets["dance4.mp4"];
 } catch(e) {}
-function saveSettings() { try { localStorage.setItem("danceSettings_v31", JSON.stringify(settings)); } catch(e) {} }
-function curOff() { return settings.offsets[settings.src] || 0; }
+function saveOffset() {
+  try { localStorage.setItem("danceSettings_v31",
+    JSON.stringify({ src:"dance4.mp4", offsets:{ "dance4.mp4": offset } })); } catch(e) {}
+}
 
-let blobSrc = null, pendingSeek = null;
-let loopOn = false, curSeg = null;
+let loopOn = false, curSeg = null, soloId = null;
+let pendingSeek = null;
+let cachedBlob = null;       // 下载完成的视频blob（内存缓存）
+let loadingController = null;
+let blobReady = false;
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -177,10 +203,72 @@ function tryPlay() {
   const p = video.play();
   if (p && p.catch) p.catch(() => {});
 }
-
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
+
+/* ===== 核心下载逻辑：带百分比，成功后缓存 ===== */
+function setPct(p) {
+  const v = Math.min(100, Math.floor(p));
+  loadPct.textContent = v + "%";
+  loadBar.style.width = v + "%";
+}
+
+async function downloadWithProgress(url, label) {
+  loadMsg.textContent = label;
+  const ctrl = new AbortController();
+  loadingController = ctrl;
+  const resp = await fetch(url, { signal: ctrl.signal });
+  if (!resp.ok) throw new Error("HTTP " + resp.status);
+  const total = +resp.headers.get("Content-Length") || 0;
+  const reader = resp.body.getReader();
+  const chunks = [];
+  let received = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    received += value.length;
+    if (total) setPct(received / total * 100);
+    else setPct(received / (16 * 1024 * 1024) * 100); // 无长度头时按16MB估算
+  }
+  setPct(100);
+  return new Blob(chunks, { type: "video/mp4" });
+}
+
+async function loadVideo() {
+  if (blobReady) return; // 已缓存，直接用
+  loadOverlay.style.display = "flex";
+  /* 依次尝试：加速通道 → 直连 */
+  const sources = [
+    [CDN_URL, "正在通过加速通道下载视频…"],
+    [DIRECT_URL, "加速通道不可用，改用直连下载…"]
+  ];
+  for (const [url, label] of sources) {
+    try {
+      cachedBlob = await downloadWithProgress(url, label);
+      blobReady = true;
+      break;
+    } catch (e) {
+      if (e.name === "AbortError") return; // 被本地文件取代
+      console.warn("加载失败:", url, e);
+    }
+  }
+  if (blobReady) {
+    video.src = URL.createObjectURL(cachedBlob);
+    video.load();
+    loadMsg.textContent = "✅ 加载完成，开始播放";
+    srcTip.textContent = "📎 视频：dance4.mp4（已缓存，跳段零等待）";
+    setTimeout(() => {
+      loadOverlay.style.display = "none";
+      seekTo(Math.max(0, (curSeg ? curSeg.sec : 0) + offset));
+      tryPlay();
+    }, 400);
+  } else {
+    loadMsg.textContent = "⚠️ 下载失败，请刷新页面重试";
+  }
+}
+
 video.addEventListener("error", () => {
   const e = video.error;
   let hint = "未知错误";
@@ -192,29 +280,25 @@ video.addEventListener("error", () => {
   srcTip.textContent = "⚠️ 视频加载失败：" + hint;
 });
 
-function applyOff() {
-  offsetInput.value = curOff();
-}
-
+/* ===== 设置面板 ===== */
 document.getElementById("setBtn").onclick = () => {
-  applyOff();
+  offsetInput.value = offset;
   settingsPanel.style.display = settingsPanel.style.display === "none" ? "block" : "none";
 };
 document.getElementById("saveSet").onclick = () => {
   let off = parseFloat(offsetInput.value);
-  if (isNaN(off)) off = 3;
-  off = Math.max(-10, Math.min(10, off));
-  settings.offsets[settings.src] = off;
-  saveSettings();
-  seekTo(Math.max(0, curSeg.sec + off));
+  if (isNaN(off)) off = DEFAULT_OFF;
+  offset = Math.max(-10, Math.min(10, off));
+  saveOffset();
+  seekTo(Math.max(0, curSeg.sec + offset));
   tryPlay();
   settingsPanel.style.display = "none";
 };
 document.getElementById("resetSet").onclick = () => {
-  settings = JSON.parse(JSON.stringify(DEFAULTS));
-  saveSettings();
-  applyOff();
-  seekTo(Math.max(0, curSeg.sec + curOff()));
+  offset = DEFAULT_OFF;
+  saveOffset();
+  offsetInput.value = offset;
+  seekTo(Math.max(0, curSeg.sec + offset));
   tryPlay();
   settingsPanel.style.display = "none";
 };
@@ -222,11 +306,14 @@ document.getElementById("pickBtn").onclick = () => fileInput.click();
 fileInput.onchange = () => {
   const f = fileInput.files[0];
   if (!f) return;
-  if (blobSrc) URL.revokeObjectURL(blobSrc);
-  blobSrc = URL.createObjectURL(f);
-  video.src = blobSrc;
+  if (loadingController) loadingController.abort();
+  blobReady = true;
+  cachedBlob = f;
+  video.src = URL.createObjectURL(f);
   video.load();
-  seekTo(Math.max(0, curSeg.sec + curOff()));
+  loadOverlay.style.display = "none";
+  srcTip.textContent = "📎 视频：本地文件（" + f.name + "）";
+  seekTo(Math.max(0, curSeg.sec + offset));
 };
 
 // ============ 走位数据：35段 ============
@@ -299,7 +386,6 @@ xMark.className = "cpos"; xMark.textContent = "✕";
 xMark.style.left = "50%"; xMark.style.top = "50%";
 stage.appendChild(xMark);
 
-let soloId = null;
 function applySolo() {
   for (const k in dots) {
     dots[k].classList.toggle("dim", soloId !== null && k !== soloId);
@@ -337,8 +423,9 @@ segments.forEach((seg) => {
   btn.onclick = () => {
     curSeg = seg;
     highlight(seg); formation(seg); updateInfo();
-    seekTo(Math.max(0, seg.sec + curOff()));
-    tryPlay();
+    seekTo(Math.max(0, seg.sec + offset));
+    if (blobReady) tryPlay();
+    else loadVideo(); // 首次点击触发下载
   };
   sideList.appendChild(btn);
 });
@@ -346,28 +433,30 @@ segments.forEach((seg) => {
 curSeg = segments[0];
 formation(curSeg); highlight(curSeg); updateInfo();
 layoutMode();
-applyOff();
+
+/* 页面打开就自动开始下载视频（不等用户点按钮） */
+loadVideo();
 
 document.getElementById("loopBtn").onclick = function() {
   loopOn = !loopOn;
   this.textContent = loopOn ? "🔁 循环本段：开" : "🔁 循环本段：关";
   this.classList.toggle("on", loopOn);
-  if (loopOn) seekTo(Math.max(0, curSeg.sec + curOff()));
+  if (loopOn) seekTo(Math.max(0, curSeg.sec + offset));
 };
 document.getElementById("syncBtn").onclick = () => {
-  seekTo(Math.max(0, curSeg.sec + curOff()));
-  tryPlay();
+  seekTo(Math.max(0, curSeg.sec + offset));
+  if (blobReady) tryPlay();
 };
 
 setInterval(() => {
   if (!curSeg || video.readyState < 1) return;
-  const t = video.currentTime, off = curOff();
+  const t = video.currentTime;
   if (loopOn) {
-    if (t >= curSeg.end + off - 0.05)
-      video.currentTime = Math.max(0, curSeg.sec + off);
+    if (t >= curSeg.end + offset - 0.05)
+      video.currentTime = Math.max(0, curSeg.sec + offset);
     return;
   }
-  const vpos = t - off;
+  const vpos = t - offset;
   const seg = segments.find(s => vpos >= s.sec && vpos < s.end);
   if (seg && seg !== curSeg) {
     curSeg = seg;
