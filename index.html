@@ -3,25 +3,27 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>走位分段练习 MP4版 v2.6</title>
+<title>走位分段练习 MP4版 v2.7</title>
 <!--
   ============ 改动记录 ============
+  v2.7
+    - 重写走位图定位：百分比布局替代JS缩放（根除手机端走位图错位/裁切）
+    - 视频缓冲时显示"加载中"提示（此前黑屏无反馈）
   v2.6
     - 循环本段：两个版本均默认关闭（撤销v2.5给纯练习室版默认开启的决定）
+    - 代码顶部新增改动记录注释
   v2.5
-    - 默认有声播放（去掉muted；浏览器拦截自动播放时显示点击提示）
+    - 默认有声播放（去掉muted）
     - 视频切换按钮、循环/重播/设置按钮、提示文字全部移到视频上方
   v2.4
     - 时间偏移量按视频文件分别记忆
     - 视频按钮改为：纯练习室版(dance3.mp4,默认) / 走位图版(dance.mp4)，移除dance2
-    - 手机走位图始终完整缩放进屏幕（不再裁切+滑动）
-    - 修复旧iOS视频容器高度塌陷导致的画面重叠
-    - 修复页面横向溢出
+    - 修复旧iOS视频容器高度塌陷导致的画面重叠；修复页面横向溢出
   v2.3
     - 段落时间轴整体前移2秒（写死），默认偏移归0
     - 新增视频切换按钮；0:32段红色3号左移一格
   v2.2
-    - 手机端段落胶囊条移至视频正下方；走位图最小缩放0.62可横滑
+    - 手机端段落胶囊条移至视频正下方
   =================================
 -->
 <style>
@@ -59,19 +61,16 @@
   #videoSel .btn.sel { background: #2fae60; }
   #info { text-align: center; color: #aaa; font-size: 14px; margin: 6px 0;
           word-break: break-all; }
-  #stageScroll { overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;
-                 width: 100%; }
-  #stageWrap { display: flex; justify-content: center; margin-top: 8px; }
-  #stage { position: relative; width: 720px; height: 420px; flex: none;
-           transform-origin: top left;
-           background-color: #20202c;
+  /* 走位图：百分比定位，容器自适应宽度，无需JS缩放 */
+  #stage { position: relative; width: 100%; max-width: 720px; margin: 8px auto 0;
+           background-color: #20202c; border: 2px solid #444; border-radius: 4px;
+           aspect-ratio: 12/7;
            background-image:
-             linear-gradient(90deg, transparent calc(50% - 1.5px), #9a9ad0 calc(50% - 1.5px),
-                             #9a9ad0 calc(50% + 1.5px), transparent calc(50% + 1.5px)),
              linear-gradient(#3a3a55 1px, transparent 1px),
              linear-gradient(90deg, #3a3a55 1px, transparent 1px);
-           background-size: 100% 100%, 60px 60px, 60px 60px;
-           border: 2px solid #444; border-radius: 4px; }
+           background-size: calc(100%/12) calc(100%/7); }
+  .vline { position: absolute; top: 0; bottom: 0; left: 50%; width: 3px;
+           margin-left: -1.5px; background: #9a9ad0; z-index: 1; }
   .dot { position: absolute; width: 36px; height: 36px; border-radius: 50%;
          color: #111; font-weight: bold; font-size: 15px; z-index: 2;
          display: flex; align-items: center; justify-content: center;
@@ -105,7 +104,7 @@
   <div id="main">
     <!-- ===== 控制区（视频上方） ===== -->
     <div class="tip" style="text-align:center; color:#f06ea9; margin:6px 0; font-size:12px;">
-      🔊 有声播放；浏览器拦截自动播放时点一下画面即可 ｜ MP4版 v2.6
+      🔊 有声播放；浏览器拦截自动播放时点一下画面即可 ｜ MP4版 v2.7
     </div>
 
     <div id="videoSel">
@@ -149,8 +148,8 @@
     <div id="mobileSlot" style="display:none;"></div>
 
     <div id="info"></div>
-    <div id="stageScroll">
-      <div id="stageWrap"><div id="stage"></div></div>
+    <div id="stage">
+      <div class="vline"></div>
     </div>
     <div class="tip" style="text-align:center; margin-top:4px;">
       💡 圆点挤在一起时，碰一下哪个就放大到最上层｜点击圆点可单独高亮成员
@@ -176,8 +175,6 @@ const side = document.getElementById("side");
 const sideList = document.getElementById("sideList");
 const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
-const stageWrap = document.getElementById("stageWrap");
-const stageScroll = document.getElementById("stageScroll");
 const videoWrap = document.getElementById("videoWrap");
 const info = document.getElementById("info");
 
@@ -207,7 +204,7 @@ function saveSettings() { try { localStorage.setItem("danceSettings_v24", JSON.s
 function curOff() { return settings.offsets[settings.src] || 0; }
 
 let blobSrc = null, pendingSeek = null;
-let loopOn = false, curSeg = null; // v2.6：循环默认关闭
+let loopOn = false, curSeg = null;
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -233,6 +230,10 @@ overlay.addEventListener("click", (e) => { e.stopPropagation(); tryPlay(); });
 
 video.addEventListener("playing", hideOverlay);
 video.addEventListener("timeupdate", () => { if (!video.paused) hideOverlay(); });
+video.addEventListener("waiting", () => {   // v2.7：缓冲提示
+  if (!video.paused) showOverlay("⏳ 加载中…（GitHub服务器在国内访问较慢，请稍等）");
+});
+video.addEventListener("canplay", () => { if (!video.paused) hideOverlay(); });
 video.addEventListener("loadedmetadata", () => {
   if (pendingSeek != null) { try { video.currentTime = pendingSeek; } catch(e) {} pendingSeek = null; }
 });
@@ -314,19 +315,15 @@ segments.forEach((s, i) => {
 
 const colors = { 1:"#f06ea9", 2:"#6ee07a", 3:"#e05252", 4:"#f5923e",
                  5:"#e8e33a", 6:"#a06ee0", 7:"#5fb8f0" };
-const GRID = 60, COLS = 12, ROWS = 7;
-const CX = 6, CY = 3.5;
+const COLS = 12, ROWS = 7;
 
+/* 旧iOS不支持aspect-ratio时给走位图兜底高度 */
+function fitStage() {
+  const w = stage.clientWidth;
+  if (w) stage.style.height = (w * ROWS / COLS) + "px";
+}
 function fitVideo() {
   videoWrap.style.height = (videoWrap.clientWidth * 9 / 16) + "px";
-}
-function fitStage() {
-  const avail = stageScroll.clientWidth || (window.innerWidth - 24);
-  let s = avail / (COLS*GRID);
-  if (s > 1) s = 1;
-  stage.style.transform = "scale(" + s + ")";
-  stageWrap.style.width = (COLS*GRID*s) + "px";
-  stageWrap.style.height = (ROWS*GRID*s) + "px";
 }
 window.addEventListener("resize", () => { fitStage(); fitVideo(); layoutMode(); });
 setTimeout(() => { fitStage(); fitVideo(); }, 0);
@@ -344,7 +341,7 @@ for (const id in colors) {
 }
 const xMark = document.createElement("div");
 xMark.className = "cpos"; xMark.textContent = "✕";
-xMark.style.left = (CX*GRID)+"px"; xMark.style.top = (CY*GRID)+"px";
+xMark.style.left = "50%"; xMark.style.top = "50%";
 stage.appendChild(xMark);
 
 let soloId = null;
@@ -357,12 +354,13 @@ function applySolo() {
 }
 stage.addEventListener("click", () => { soloId = null; applySolo(); });
 
+/* v2.7：坐标直接换算为百分比，容器多宽图就多宽 */
 function formation(seg) {
   xMark.style.display = seg.x ? "block" : "none";
   Object.entries(seg).forEach(([k, v]) => {
     if (isNaN(k)) return;
-    dots[k].style.left = (v[0] * GRID) + "px";
-    dots[k].style.top  = (v[1] * GRID) + "px";
+    dots[k].style.left = (v[0] / COLS * 100) + "%";
+    dots[k].style.top  = (v[1] / ROWS * 100) + "%";
   });
 }
 function highlight(seg) {
