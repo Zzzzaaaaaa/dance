@@ -6,17 +6,15 @@
 <title>我最可爱的地方 - 走位分段练习</title>
 <!--
   ============ 改动记录 ============
+  v3.8
+    - 走位图上下加「后台/观众」标注
+    - 新增🔄翻转按钮：走位图上下镜像，标注对调
   v3.7
-    - 浏览器端恢复 v3.2 的 fetch 流式下载（速度回归）
-    - XHR 仅作为兜底，微信端仍为引导页
+    - 浏览器端恢复fetch流式下载（速度回归），XHR兜底
   v3.6
     - 微信提示页文案柔化
-  v3.5
-    - 删顶部说明；微信不加载只引导
   v3.4
     - 按钮时间含偏移
-  v3.2
-    - 完整下载后播放 + 百分比 + jsDelivr优先
   =================================
 -->
 <style>
@@ -30,6 +28,7 @@
   .btn.active { background: #ff5c8a; }
   .btn.small { padding: 7px 12px; }
   #loopBtn.on { background: #2fae60; }
+  #flipBtn.on { background: #2fae60; }
   #wxBlock { display: none; max-width: 480px; margin: 40px auto; text-align: center;
              background: #2a1f30; border: 1px solid #a06ea0; border-radius: 14px;
              padding: 28px 20px; }
@@ -66,6 +65,11 @@
            background-size: calc(100%/12) calc(100%/7); }
   .vline { position: absolute; top: 0; bottom: 0; left: 50%; width: 3px;
            margin-left: -1.5px; background: #9a9ad0; z-index: 1; }
+  .stageLabel { position: absolute; left: 0; right: 0; text-align: center; z-index: 1;
+                font-size: 12px; color: #8a8ab8; letter-spacing: 6px;
+                pointer-events: none; user-select: none; }
+  .stageLabel.top { top: 2px; }
+  .stageLabel.bottom { bottom: 2px; }
   .dot { position: absolute; width: 26px; height: 26px; border-radius: 50%;
          color: #111; font-weight: bold; font-size: 12px; z-index: 2;
          display: flex; align-items: center; justify-content: center;
@@ -112,6 +116,7 @@
     <div class="row">
       <button id="loopBtn" class="btn small">🔁 循环本段：关</button>
       <button id="syncBtn" class="btn small">⏪ 本段重播</button>
+      <button id="flipBtn" class="btn small">🔄 视角：观众席</button>
       <button id="setBtn" class="btn small">⚙️ 设置</button>
     </div>
 
@@ -144,6 +149,8 @@
     <div id="info"></div>
     <div id="stage">
       <div class="vline"></div>
+      <div class="stageLabel top" id="labelTop">后　台</div>
+      <div class="stageLabel bottom" id="labelBottom">观　众</div>
     </div>
     <div class="tip" style="text-align:center; margin-top:4px;">
       💡 圆点挤在一起时，碰一下哪个就放大到最上层｜点击圆点可单独高亮成员
@@ -184,6 +191,8 @@ const sideList = document.getElementById("sideList");
 const mobileSlot = document.getElementById("mobileSlot");
 const stage = document.getElementById("stage");
 const info = document.getElementById("info");
+const labelTop = document.getElementById("labelTop");
+const labelBottom = document.getElementById("labelBottom");
 
 const mq = window.matchMedia("(max-width: 900px)");
 function layoutMode() {
@@ -216,6 +225,7 @@ let loopOn = false, curSeg = null, soloId = null;
 let pendingSeek = null;
 let cachedBlob = null, blobReady = false;
 let tapToPlay = false;
+let flipped = false;   /* v3.8：视角翻转（true=从后台看） */
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -250,7 +260,7 @@ function setPct(p) {
   loadBar.style.width = v + "%";
 }
 
-/* ===== v3.2 同款：fetch 流式下载（浏览器端主力，速度快） ===== */
+/* fetch 流式下载（浏览器端主力） */
 async function downloadStream(url) {
   const resp = await fetch(url);
   if (!resp.ok) throw new Error("HTTP " + resp.status);
@@ -270,7 +280,7 @@ async function downloadStream(url) {
   return new Blob(chunks, { type: "video/mp4" });
 }
 
-/* XHR 兜底（万一某浏览器流式不可用） */
+/* XHR 兜底 */
 function downloadXHR(url) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -293,7 +303,6 @@ function downloadXHR(url) {
 async function loadVideo() {
   if (blobReady) return;
   loadOverlay.style.display = "flex";
-  /* jsDelivr优先 → 直连备用；流式优先 → XHR兜底 */
   const sources = [
     [CDN_URL,    "正在加载视频…"],
     [DIRECT_URL, "正在加载视频…"]
@@ -469,12 +478,14 @@ function applySolo() {
 }
 stage.addEventListener("click", () => { soloId = null; applySolo(); });
 
+/* v3.8：formation 考虑视角翻转（y 坐标镜像） */
 function formation(seg) {
   xMark.style.display = seg.x ? "block" : "none";
   Object.entries(seg).forEach(([k, v]) => {
     if (isNaN(k)) return;
+    const y = flipped ? (ROWS - v[1]) : v[1];
     dots[k].style.left = (v[0] / COLS * 100) + "%";
-    dots[k].style.top  = (v[1] / ROWS * 100) + "%";
+    dots[k].style.top  = (y / ROWS * 100) + "%";
   });
 }
 function highlight(seg) {
@@ -509,6 +520,17 @@ formation(curSeg); highlight(curSeg); updateInfo();
 layoutMode();
 
 loadVideo();
+
+/* v3.8：翻转按钮 */
+document.getElementById("flipBtn").onclick = function() {
+  flipped = !flipped;
+  /* 标注对调：翻转后上边是观众、下边是后台 */
+  labelTop.textContent    = flipped ? "观　众" : "后　台";
+  labelBottom.textContent = flipped ? "后　台" : "观　众";
+  this.textContent = flipped ? "🔄 视角：后台" : "🔄 视角：观众席";
+  this.classList.toggle("on", flipped);
+  formation(curSeg); /* 重新按新视角渲染圆点（带平滑动画） */
+};
 
 document.getElementById("loopBtn").onclick = function() {
   loopOn = !loopOn;
