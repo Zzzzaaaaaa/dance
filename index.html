@@ -3,18 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>我最可爱的地方 - 走位分段练习</title>
+<title>我最可爱的地方 - 走位分段练习 </title>
 <!--
   ============ 改动记录 ============
+  v3.9
+    - 圆点改为显示成员名：1 envy粉 2 君君绿 3 即鹿白 4 奶盖深蓝
+      5 言兮黄 6 杳杳浅蓝 7 猫猫紫
+    - 高亮提示同步显示名字
   v3.8
-    - 走位图上下加「后台/观众」标注
-    - 新增🔄翻转按钮：走位图上下镜像，标注对调
+    - 走位图「后台/观众」标注 + 翻转按钮
   v3.7
-    - 浏览器端恢复fetch流式下载（速度回归），XHR兜底
-  v3.6
-    - 微信提示页文案柔化
-  v3.4
-    - 按钮时间含偏移
+    - 浏览器端恢复fetch流式下载，XHR兜底
   =================================
 -->
 <style>
@@ -70,16 +69,17 @@
                 pointer-events: none; user-select: none; }
   .stageLabel.top { top: 2px; }
   .stageLabel.bottom { bottom: 2px; }
-  .dot { position: absolute; width: 26px; height: 26px; border-radius: 50%;
-         color: #111; font-weight: bold; font-size: 12px; z-index: 2;
+  .dot { position: absolute; width: 34px; height: 34px; border-radius: 50%;
+         color: #111; font-weight: bold; font-size: 11px; z-index: 2;
          display: flex; align-items: center; justify-content: center;
          cursor: pointer; transform: translate(-50%,-50%);
          border: 2px solid rgba(255,255,255,.45);
          box-shadow: 0 0 4px rgba(0,0,0,.6);
          transition: left 1.2s ease, top 1.2s ease, opacity .3s, width .15s, height .15s; }
-  .dot:hover, .dot:active { z-index: 5; width: 38px; height: 38px; font-size: 16px; }
+  .dot:hover, .dot:active { z-index: 5; width: 44px; height: 44px; font-size: 13px; }
   .dot.dim { opacity: .22; filter: saturate(.4); }
   .dot.solo { box-shadow: 0 0 14px 4px rgba(255,255,255,.55); z-index: 4; }
+  .dot.darkText { color: #fff; }
   .cpos { position: absolute; color: #ff2d55; font-size: 34px; font-weight: bold;
           transform: translate(-50%,-50%); pointer-events: none; z-index: 1; display: none; }
   #settingsPanel { background: #22223a; border-radius: 10px; padding: 14px;
@@ -225,7 +225,7 @@ let loopOn = false, curSeg = null, soloId = null;
 let pendingSeek = null;
 let cachedBlob = null, blobReady = false;
 let tapToPlay = false;
-let flipped = false;   /* v3.8：视角翻转（true=从后台看） */
+let flipped = false;
 
 function seekTo(t) {
   if (video.readyState >= 1) { try { video.currentTime = t; } catch(e) {} }
@@ -442,9 +442,20 @@ function fmt(sec) {
 }
 segments.forEach((s) => { s.name = fmt(s.sec); });
 
-const colors = { 1:"#f06ea9", 2:"#6ee07a", 3:"#e05252", 4:"#f5923e",
-                 5:"#e8e33a", 6:"#a06ee0", 7:"#5fb8f0" };
-const COLS = 12, ROWS = 7;
+/* ===== v3.9：成员名与配色 ===== */
+/* key 与走位数据里的 1~7 对应 */
+const members = {
+  1: { name: "envy", color: "#f06ea9" },   /* 粉 */
+  2: { name: "君君", color: "#6ee07a" },   /* 绿 */
+  3: { name: "即鹿", color: "#ffffff" },    /* 白 */
+  4: { name: "奶盖", color: "#1e40af" },   /* 深蓝（字用白色） */
+  5: { name: "言兮", color: "#e8e33a" },   /* 黄 */
+  6: { name: "杳杳", color: "#6ec6e8" },   /* 浅蓝·水色 */
+  7: { name: "猫猫", color: "#a06ee0" },   /* 紫 */
+};
+const DARK_BG = { 4: true };  /* 深色底需要白字 */
+
+const COLS = 8, ROWS = 6;
 
 function fitStage() {
   const w = stage.clientWidth;
@@ -455,11 +466,11 @@ setTimeout(fitStage, 0);
 setTimeout(fitStage, 300);
 
 const dots = {};
-for (const id in colors) {
+for (const id in members) {
   const d = document.createElement("div");
-  d.className = "dot";
-  d.style.background = colors[id];
-  d.textContent = id;
+  d.className = "dot" + (DARK_BG[id] ? " darkText" : "");
+  d.style.background = members[id].color;
+  d.textContent = members[id].name;
   d.onclick = (e) => { e.stopPropagation(); soloId = (soloId===id)?null:id; applySolo(); };
   stage.appendChild(d);
   dots[id] = d;
@@ -478,7 +489,6 @@ function applySolo() {
 }
 stage.addEventListener("click", () => { soloId = null; applySolo(); });
 
-/* v3.8：formation 考虑视角翻转（y 坐标镜像） */
 function formation(seg) {
   xMark.style.display = seg.x ? "block" : "none";
   Object.entries(seg).forEach(([k, v]) => {
@@ -498,7 +508,8 @@ function highlight(seg) {
 function updateInfo() {
   if (!curSeg) return;
   info.textContent = "▶ " + curSeg.name +
-    (curSeg.x ? " ❌C位空缺" : "") + (soloId ? `（已高亮 ${soloId} 号）` : "");
+    (curSeg.x ? " ❌C位空缺" : "") +
+    (soloId ? `（已高亮 ${members[soloId].name}）` : "");
 }
 
 segments.forEach((seg) => {
@@ -521,15 +532,14 @@ layoutMode();
 
 loadVideo();
 
-/* v3.8：翻转按钮 */
+/* 翻转按钮 */
 document.getElementById("flipBtn").onclick = function() {
   flipped = !flipped;
-  /* 标注对调：翻转后上边是观众、下边是后台 */
   labelTop.textContent    = flipped ? "观　众" : "后　台";
   labelBottom.textContent = flipped ? "后　台" : "观　众";
   this.textContent = flipped ? "🔄 视角：后台" : "🔄 视角：观众席";
   this.classList.toggle("on", flipped);
-  formation(curSeg); /* 重新按新视角渲染圆点（带平滑动画） */
+  formation(curSeg);
 };
 
 document.getElementById("loopBtn").onclick = function() {
